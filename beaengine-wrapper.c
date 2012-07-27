@@ -18,6 +18,7 @@ void disassemble_block(void *start, int block_length, int is_64bit, int show_bin
   while (d.EIP < end) {
     int len, valid;
 
+    d.VirtualAddr = d.EIP;
     len = Disasm(&d);
     valid = (len != UNKNOWN_OPCODE) && (len != OUT_OF_BLOCK);
 
