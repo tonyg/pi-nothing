@@ -39,7 +39,7 @@
    (else (error 'reg-num "Invalid register ~v" reg))))
 
 (define (mod-r-m-32 reg modrm)
-  (mod-r-m reg-num imm32 reg modrm))
+  (mod-r-m reg-num reg modrm))
 
 (define (*op opcode source target . maybe-8bit)
   (let ((opcode (arithmetic-opcode opcode))

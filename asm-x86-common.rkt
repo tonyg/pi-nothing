@@ -173,7 +173,7 @@
 ;;  01 - 8bit displacement, [reg + n]
 ;;  10 - 32bit displacement, [reg + n]
 ;;  11 - direct, reg
-(define (mod-r-m reg-num immNN reg modrm)
+(define (mod-r-m reg-num reg modrm)
   (let ((reg (cond
 	      ((number? reg) reg)
 	      ((register? reg) (reg-num reg))
@@ -184,7 +184,7 @@
      ((@imm? modrm)
       ;; raw absolute address, always 32 bits
       ;; see also caveat wrt (@reg 'ebp 0) below
-      (list (mod-r-m* 0 reg 5) (immNN (@imm-address modrm))))
+      (list (mod-r-m* 0 reg 5) (imm32 (@imm-address modrm))))
      ((@reg? modrm)
       (let ((base-reg (@reg-register modrm))
 	    (offset (@reg-offset modrm)))
@@ -193,7 +193,7 @@
 			 (else 2)))
 	      (offset-bytes (cond ((zero? offset) '())
 				  ((onebyte-immediate? offset) (imm8 offset))
-				  (else (immNN offset)))))
+				  (else (imm32 offset)))))
 	  (cond
 	   ((register=? base-reg 'esp)
 	    ;; can't directly use base reg, must use scaled indexing
