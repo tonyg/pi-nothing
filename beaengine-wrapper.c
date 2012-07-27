@@ -27,6 +27,7 @@ void disassemble_block(void *start, int block_length, int is_64bit, int show_bin
 	   valid ? d.CompleteInstr : "????????");
 
     if (!valid) {
+      printf("\n");
       break;
     }
 
