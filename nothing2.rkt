@@ -351,9 +351,11 @@
 					      body-instrs
 					      (list `(ret ,target-reg)))))
   (pretty-print `(post-expansion ,instrs))
-  (define-values (temp-count final-instrs) (allocate-registers surplus-tail-args instrs))
-  (append (list `(enter ,temp-count))
-	  (peephole final-instrs)))
+  (define-values (temp-count allocated-instrs) (allocate-registers surplus-tail-args instrs))
+  (define peepholed-instrs (append (list `(enter ,temp-count)) (peephole allocated-instrs)))
+  (pretty-print `(peepholed-instrs ,peepholed-instrs))
+  (define machine-code (assemble argcount peepholed-instrs))
+  machine-code)
 
 ;;---------------------------------------------------------------------------
 ;; Expression language
@@ -773,11 +775,9 @@
   (display "===========================================================================")
   (newline)
   (pretty-print exp)
-  (define final-instrs (compile-procesure args exp env))
-  (pretty-print `(final-instrs ,final-instrs))
-  (define assembled (assemble (length args) final-instrs))
-  (dump-bytes! assembled)
-  (disassemble-bytes! assembled #:arch 'i386)
+  (define machine-code (compile-procesure args exp env))
+  (dump-bytes! machine-code)
+  (disassemble-bytes! machine-code #:arch 'i386)
   (display "===========================================================================")
   (newline)
   (newline))
