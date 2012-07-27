@@ -117,7 +117,7 @@
      (define total-requirement (+ temp-size linkage-size))
      (define frame-size (round-up-to-nearest frame-alignment total-requirement))
      (define delta (- frame-size linkage-size))
-     (list (*push32 'ebp)
+     (list (*push 'ebp)
 	   (*mov 'esp 'ebp)
 	   (*op 'sub delta 'esp))]
     [`(move-word ,target ,source)			(*mov (xs source) (xs target))]
@@ -180,7 +180,7 @@
 (define (assemble inward-arg-count instrs)
   (define pre-linking (flatten (map (assemble-instr* inward-arg-count) instrs)))
   (write `(pre-linking ,pre-linking)) (newline) (flush-output)
-  (define-values (linked relocs) (internal-link pre-linking))
+  (define-values (linked relocs) (internal-link-32 pre-linking))
   (write `(relocations ,relocs)) (newline) (flush-output)
   (list->bytes linked))
 
