@@ -173,8 +173,8 @@
 
 (define (compute-live-intervals instrs)
   (define raw-live-map (raw-live-ranges instrs))
-  ;; (for ([(k v) (in-hash raw-live-map)])
-  ;;   (write `(,k = ,(list-ref instrs k) -> ,v))
+  ;; (for ([k (in-range (length instrs))])
+  ;;   (write `(,k = ,(list-ref instrs k) -> ,(hash-ref raw-live-map k)))
   ;;   (newline))
   (define live-ranges (extract-live-ranges instrs raw-live-map))
   ;;(pretty-print `(live-ranges ,live-ranges))

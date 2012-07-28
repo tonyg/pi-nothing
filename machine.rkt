@@ -3,12 +3,18 @@
 (provide (struct-out machine-description)
 
 	 available-regs
+	 inward-argument-location
+	 outward-argument-location
 	 expand-instructions
 	 expand-temporary-loads-and-stores
 	 assemble)
 
 (struct machine-description (architecture
+			     word-size-bytes
+			     word-ctype
 			     available-regs
+			     inward-argument-location
+			     outward-argument-location
 			     expand-instructions
 			     expand-temporary-loads-and-stores
 			     assemble)
@@ -16,6 +22,12 @@
 
 (define (available-regs md)
   (machine-description-available-regs md))
+
+(define (inward-argument-location md i)
+  ((machine-description-inward-argument-location md) i))
+
+(define (outward-argument-location md calltype count i)
+  ((machine-description-outward-argument-location md) calltype count i))
 
 (define (expand-instructions md instrs)
   ((machine-description-expand-instructions md) instrs))

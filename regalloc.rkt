@@ -124,10 +124,11 @@
 									instrs-vec
 									live-interval
 									mapping))))
-	 ;; (pretty-print `(loop (temp-count ,temp-count)
-	 ;; 		      (ranges ,ranges)
-	 ;; 		      (mapping ,mapping)
-	 ;; 		      (availability ,availability)))
+	 ;; (pretty-print `((found-reg ,found-reg)
+	 ;; 		 (temp-count ,temp-count)
+	 ;; 		 (ranges ,ranges)
+	 ;; 		 (mapping ,mapping)
+	 ;; 		 (availability ,availability)))
 	 (cond
 	  [found-reg
 	   (loop temp-count
@@ -164,7 +165,7 @@
 	     ;; for use in moving around arguments during frame size
 	     ;; adjustment in a tail call.
 	     (prev-instrs instrs))
-    (pretty-print `(allocation-iteration ,prev-temp-count ,prev-instrs))
+    ;;(pretty-print `(allocation-iteration ,prev-temp-count ,prev-instrs))
     (define-values (new-temp-count remaining-instrs mapping)
       (allocate-registers-once prev-temp-count prev-instrs starting-reg-availability))
     (define new-temps-only

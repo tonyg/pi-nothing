@@ -1,16 +1,20 @@
 #lang racket/base
 
+(require rackunit)
+
 (require "asm-x86-common.rkt")
 
 (provide (all-from-out "asm-x86-common.rkt")
 
 	 *op
 	 *imul
+	 *not
 	 *mul
 	 *div
 	 *inc
 	 *mov
 	 *cmov
+	 *setcc-eax
 	 *call-or-jmp-like
 	 *call
 	 *jmp
@@ -38,8 +42,8 @@
    ((assq reg regs) => cadr)
    (else (error 'reg-num "Invalid register ~v" reg))))
 
-(define (mod-r-m-32 reg modrm)
-  (mod-r-m reg-num reg modrm))
+(define (mod-r-m-32 opcodes reg modrm)
+  (mod-r-m #f reg-num opcodes reg modrm))
 
 (define (*op opcode source target . maybe-8bit)
   (let ((opcode (arithmetic-opcode opcode))
@@ -47,11 +51,10 @@
     (cond
      ((immediate? source)
       (let ((s-bit (if (and (= w-bit 1) (onebyte-immediate? source)) 1 0)))
-	(if (register=? target 'eax)
+	(if (and (register=? target 'eax) (not (onebyte-immediate? source)))
 	    (list (bitfield 2 0 3 opcode 2 2 1 w-bit)
 		  (imm32-if (= w-bit 1) source))
-	    (list (bitfield 2 2 3 0 1 0 1 s-bit 1 w-bit)
-		  (mod-r-m-32 opcode target)
+	    (list (mod-r-m-32 (bitfield 2 2 3 0 1 0 1 s-bit 1 w-bit) opcode target)
 		  (imm32-if (and (= w-bit 1) (not (onebyte-immediate? source))) source)))))
      ((memory? source)
       (cond
@@ -59,11 +62,11 @@
 	(error '*op "~v: Cannot have memory source ~v and non-register target ~v"
 	       opcode source target))
        (else
-	(list (bitfield 2 0 3 opcode 2 1 1 w-bit) (mod-r-m-32 target source)))))
+	(mod-r-m-32 (bitfield 2 0 3 opcode 2 1 1 w-bit) target source))))
      ((register? source)
       (cond
        ((or (memory? target) (register? target))
-	(list (bitfield 2 0 3 opcode 2 0 1 w-bit) (mod-r-m-32 source target)))
+	(mod-r-m-32 (bitfield 2 0 3 opcode 2 0 1 w-bit) source target))
        (else
 	(error '*op "~v: Cannot have register source ~v and non-mem, non-reg target ~v"
 	       opcode source target))))
@@ -76,21 +79,23 @@
    ((not (register? target))
     (error '*imul "Cannot have non-register target ~v" target))
    ((immediate? source)
-    (list (if (onebyte-immediate? source) #x6B #x69)
-	  (mod-r-m-32 target target)
+    (list (mod-r-m-32 (if (onebyte-immediate? source) #x6B #x69) target target)
 	  (imm32-if (not (onebyte-immediate? source)) source)))
    (else ;; memory or register source
-    (list #x0F #xAF (mod-r-m-32 target source)))))
+    (mod-r-m-32 (list #x0F #xAF) target source))))
+
+(define (*not target)
+  (mod-r-m-32 #xF7 2 target))
 
 ;; Unsigned multiply
 (define (*mul multiplicand)
-  (list #xF7 (mod-r-m-32 4 multiplicand)))
+  (mod-r-m-32 #xF7 4 multiplicand))
 
 (define (*div divisor)
-  (list #xF7 (mod-r-m-32 6 divisor)))
+  (mod-r-m-32 #xF7 6 divisor))
 
 (define (*inc target)
-  (list #xFF (mod-r-m-32 0 target)))
+  (mod-r-m-32 #xFF 0 target))
 
 (define (*mov source target . maybe-8bit)
   (let ((w-bit (if (null? maybe-8bit) 1 (if (car maybe-8bit) 0 1))))
@@ -100,8 +105,7 @@
 	  ;; special alternate encoding
 	  (list (bitfield 4 #b1011 1 w-bit 3 (reg-num target))
 		(imm32-if (= w-bit 1) source))
-	  (list (bitfield 2 3 3 0 2 3 1 w-bit)
-		(mod-r-m-32 0 target)
+	  (list (mod-r-m-32 (bitfield 2 3 3 0 2 3 1 w-bit) 0 target)
 		(imm32-if (= w-bit 1) source))))
      ((memory? source)
       (cond
@@ -111,14 +115,14 @@
        ((not (register? target))
 	(error "*mov: Cannot have memory source and non-register target" (list source target)))
        (else
-	(list (bitfield 2 2 3 1 2 1 1 w-bit) (mod-r-m-32 target source)))))
+	(mod-r-m-32 (bitfield 2 2 3 1 2 1 1 w-bit) target source))))
      ((register? source)
       (cond
        ((and (@imm? target) (register=? source 'eax))
 	;; special alternate encoding
 	(list (bitfield 7 #b1010001 1 w-bit) (imm32 (@imm-address target))))
        ((or (memory? target) (register? target))
-	(list (bitfield 2 2 3 1 2 0 1 w-bit) (mod-r-m-32 source target)))
+	(mod-r-m-32 (bitfield 2 2 3 1 2 0 1 w-bit) source target))
        (else
 	(error "*mov: Cannot have register source and non-mem, non-reg target"
 	       (list source target)))))
@@ -126,14 +130,18 @@
       (error "*mov: Invalid source" (list source target))))))
 
 (define (*cmov code source target)
-  (list #x0F (bitfield 4 4 4 (condition-code-num code)) (mod-r-m-32 target source)))
+  (mod-r-m-32 (list #x0F (bitfield 4 4 4 (condition-code-num code))) target source))
+
+(define (*setcc-eax code)
+  (list (mod-r-m-32 (list #x0F (bitfield 4 9 4 (condition-code-num code))) 0 'eax)
+	(*op 'and 1 'eax)))
 
 (define (*call-or-jmp-like immediate-opcode indirect-mod loc)
   (cond
    ((immediate? loc)
     (list immediate-opcode (imm32 loc)))
    ((or (register? loc) (memory? loc))
-    (list #xFF (mod-r-m-32 indirect-mod loc)))
+    (mod-r-m-32 #xFF indirect-mod loc))
    (else
     (error "*call/*jmp: Invalid location" loc))))
 
@@ -166,3 +174,14 @@
 
 (define (internal-link-32 instrs)
   (internal-link 4 imm32* instrs))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(require (only-in racket/list flatten))
+
+(define (unhex-string str) ;; grumble
+  (define cleaned (regexp-replace* #rx"[^0-9a-fA-F]+" str ""))
+  (for/list [(i (in-range (/ (string-length cleaned) 2)))]
+    (string->number (substring cleaned (* i 2) (+ 2 (* i 2))) 16)))
+
+(check-equal? (flatten (*setcc-eax 'ne)) (unhex-string "0f 95 c0 83 e0 01"))

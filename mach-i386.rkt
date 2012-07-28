@@ -4,6 +4,7 @@
 (require racket/list)
 (require racket/match)
 (require (only-in srfi/1 iota))
+(require (only-in '#%foreign _int32))
 
 (require "lir.rkt")
 (require "asm-i386.rkt")
@@ -20,6 +21,12 @@
 (define frame-alignment 16) ;; must be a power of two
 (define linkage-size 8) ;; ebp + eip
 
+(define (inward-argument-location i)
+  (inward-arg i))
+
+(define (outward-argument-location calltype count i)
+  (outward-arg calltype count i))
+
 (define (expand-instructions instrs)
   (define killed-regs '(eax edx ecx))
   (define saved-regs '(ebx esi edi))
@@ -34,16 +41,20 @@
 		       `(wdiv ,(preg 'eax) ,(preg 'eax) ,(preg 'ecx))
 		       `(use ,(preg 'edx))
 		       `(move-word ,target ,(preg 'eax)))]
+		[`(compare ,cmpop ,target ,s1 ,s2)
+		 (list `(move-word ,(preg 'eax) ,s1)
+		       `(compare ,cmpop ,(preg 'eax) ,(preg 'eax) ,s2)
+		       `(move-word ,target ,(preg 'eax)))]
 		[`(ret ,target)
 		 (append
+		  (list `(move-word ,(preg 'eax) ,target))
 		  (map (lambda (loc name) `(move-word ,(preg name) ,loc)) saved-locs saved-regs)
 		  (map (lambda (name) `(use ,(preg name))) saved-regs)
-		  (list `(move-word ,(preg 'eax) ,target)
-			`(ret ,(preg 'eax))))]
+		  (list `(ret ,(preg 'eax))))]
 		[`(,(and op (or 'call 'tailcall)) ,target ,label (,arg ...))
 		 (define argcount (length arg))
 		 (define calltype (if (eq? op 'tailcall) 'tail 'nontail))
-		 (define (mkarg i) (outward-arg calltype argcount i))
+		 (define (mkarg i) (outward-argument-location calltype argcount i))
 		 (append (if (eq? calltype 'tail)
 			     (list `(use ,(preg 'eax))) ;; need a scratch reg
 			     (list))
@@ -87,11 +98,10 @@
 				      target
 				      s1
 				      s2)]
-	       [`(compare ,cmpop ,target ,s1 ,s2)
-		(shuffle-for-two-args (lambda (o i1 i2) `(compare ,cmpop ,o ,i1 ,i2))
-				      target
-				      s1
-				      s2)]
+	       [`(compare ,cmpop ,target ,(? memory-location? n) ,(? memory-location? m))
+		(define r (fresh-reg))
+		(list `(move-word ,r ,m)
+		      `(compare ,cmpop ,target ,n ,r))]
 	       [`(load ,(temporary n) ,source ,offset)
 		(define r (fresh-reg))
 		(list `(load ,r ,source ,offset)
@@ -126,14 +136,15 @@
     [`(w- ,target ,target ,source)			(*op 'sub (xs source) (xs target))]
     [`(w* ,target ,target ,source)			(*imul (xs source) (xs target))]
     [`(wdiv ,(preg 'eax) ,(preg 'eax) ,(preg r))	(*div r)]
-    [`(compare ,cmpop ,(preg target) ,(preg target) ,source)
+    [`(compare ,cmpop ,(preg 'eax) ,s1 ,s2)
+     ;; Let wolog cmpop be <. Then we wish to compute s1 - s2 and have
+     ;; the comparison be true if the result of subtraction is
+     ;; negative. Now, (*op 'cmp source target) is based around target
+     ;; - source, so we need to make sure the arguments are in the
+     ;; correct order.
      (define cc (case cmpop ((<=) 'le) ((<) 'l) ((=) 'e) ((<>) 'ne) ((>) 'g) ((>=) 'ge)))
-     (define skip (gensym 'skip))
-     (list (*op 'xor target target)
-	   (*op 'cmp (xs source) target)
-	   (*jmp-cc (invert-condition-code cc) (label-reference skip #t))
-	   (*inc target)
-	   (label-anchor skip))]
+     (list (*op 'cmp (xs s2) (xs s1))
+	   (*setcc-eax cc))]
     [`(prepare-call nontail ,arg-count)
      (if (zero? arg-count)
 	 '()
@@ -147,8 +158,8 @@
 	 '()
 	 (list (*mov (@reg 'ebp 0) 'eax)
 	       (*mov 'eax (@reg 'ebp (- (* delta word-size-bytes))))
-	       (*mov (@reg 'ebp 4) 'eax)
-	       (*mov 'eax (@reg 'ebp (+ 4 (- (* delta word-size-bytes)))))))]
+	       (*mov (@reg 'ebp word-size-bytes) 'eax)
+	       (*mov 'eax (@reg 'ebp (+ word-size-bytes (- (* delta word-size-bytes)))))))]
     [`(cleanup-call nontail ,arg-count)
      (if (zero? arg-count)
 	 '()
@@ -186,7 +197,11 @@
 
 (define machine-i386
   (machine-description 'i386
+		       word-size-bytes
+		       _int32
 		       available-regs
+		       inward-argument-location
+		       outward-argument-location
 		       expand-instructions
 		       expand-temporary-loads-and-stores
 		       assemble))

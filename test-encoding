@@ -1,0 +1,13 @@
+#!/bin/sh
+
+cat <<EOF > experiment.s
+	.text
+	.code64
+.globl e64
+e64:
+EOF
+echo "$1" >> experiment.s
+cat experiment.s
+gcc -c experiment.s
+otool -t experiment.o
+otool -tv experiment.o
