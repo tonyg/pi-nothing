@@ -1,3 +1,9 @@
+ifeq ($(shell uname -s),Darwin)
+SHARED=-dynamiclib
+else
+SHARED=-shared
+endif
+
 all: beaengine-wrapper.so
 
 beaengine: beaengine-sources.zip
@@ -12,7 +18,7 @@ beaengine/dist: beaengine
 	cp -r beaengine/sources/include $@
 
 %.so: %.c beaengine/dist
-	$(CC) -o $@ -shared -I beaengine/dist/include -Lbeaengine/dist $< -lBeaEngine_s_d
+	$(CC) -o $@ $(SHARED) -I beaengine/dist/include -Lbeaengine/dist $< -lBeaEngine_s_d
 
 %: %.c beaengine/dist
 	$(CC) -o $@ -I beaengine/dist/include -Lbeaengine/dist $< -lBeaEngine_s_d
