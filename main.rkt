@@ -19,13 +19,16 @@
 (require "mach-i386.rkt")
 (require "mach-x86_64.rkt")
 
+;;(define te-machine machine-x86_64)
+(define te-machine machine-i386)
+
 (define (te args exp env)
   (display "===========================================================================")
   (newline)
   (pretty-print exp)
-  (define machine-code (compile-procedure machine-i386 args exp env))
+  (define machine-code (compile-procedure te-machine args exp env))
   (dump-bytes! machine-code) (flush-output)
-  (disassemble-bytes! machine-code #:arch 'i386)
+  (disassemble-bytes! machine-code #:arch (machine-description-architecture te-machine))
   (display "===========================================================================")
   (newline)
   (newline))
