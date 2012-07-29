@@ -31,7 +31,7 @@
 							     ,(inward-argument-location md i))
 						 prolog)))
 			      ((null? rib) (reverse prolog))))
-  (define instrs (expand-instructions md (append init-arg-instrs body-instrs)))
+  (define instrs (expand-instructions md init-arg-instrs body-instrs))
   ;;(pretty-print `(post-expansion ,instrs))
   (define-values (temp-count allocated-instrs) (allocate-registers md surplus-tail-args instrs))
   (define peepholed-instrs (append (list `(enter ,temp-count)) (peephole allocated-instrs)))

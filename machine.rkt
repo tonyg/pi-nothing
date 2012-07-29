@@ -29,8 +29,8 @@
 (define (outward-argument-location md calltype count i)
   ((machine-description-outward-argument-location md) calltype count i))
 
-(define (expand-instructions md instrs)
-  ((machine-description-expand-instructions md) instrs))
+(define (expand-instructions md init-arg-instrs instrs)
+  ((machine-description-expand-instructions md) init-arg-instrs instrs))
 
 (define (expand-temporary-loads-and-stores md instrs)
   ((machine-description-expand-temporary-loads-and-stores md) instrs))

@@ -45,6 +45,11 @@
   ;; 					   ,candidates))
   candidates)
 
+;; TODO: if there are two candidates that would work, and one is a
+;; register and the other a temporary, then this should take the
+;; register! In general, there may be many possibilities, so perhaps
+;; produce them all, rank them, select one and then update the
+;; remaining availability?
 (define (find-available-register availability requirement-interval good-candidates)
   (match availability
     ['() (values #f availability)]

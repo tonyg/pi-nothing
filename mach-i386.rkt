@@ -21,57 +21,60 @@
 (define frame-alignment 16) ;; must be a power of two
 (define linkage-size 8) ;; ebp + eip
 
+(define killed-regs '(eax edx ecx))
+(define saved-regs '(ebx esi edi))
+
 (define (inward-argument-location i)
   (inward-arg i))
 
 (define (outward-argument-location calltype count i)
   (outward-arg calltype count i))
 
-(define (expand-instructions instrs)
-  (define killed-regs '(eax edx ecx))
-  (define saved-regs '(ebx esi edi))
+(define ((expand-instruction saved-locs) instr)
+  (match instr
+    [`(wdiv ,target ,s1 ,s2)
+     (list `(move-word ,(preg 'edx) ,(lit 0))
+	   `(move-word ,(preg 'eax) ,s1)
+	   `(move-word ,(preg 'ecx) ,s2)
+	   `(wdiv ,(preg 'eax) ,(preg 'eax) ,(preg 'ecx))
+	   `(use ,(preg 'edx))
+	   `(move-word ,target ,(preg 'eax)))]
+    [`(compare ,cmpop ,target ,s1 ,s2)
+     (list `(move-word ,(preg 'eax) ,s1)
+	   `(compare ,cmpop ,(preg 'eax) ,(preg 'eax) ,s2)
+	   `(move-word ,target ,(preg 'eax)))]
+    [`(ret ,target)
+     (append (list `(move-word ,(preg 'eax) ,target))
+	     (map (lambda (loc name) `(move-word ,(preg name) ,loc)) saved-locs saved-regs)
+	     (map (lambda (name) `(use ,(preg name))) saved-regs)
+	     (list `(ret ,(preg 'eax))))]
+    [`(,(and op (or 'call 'tailcall)) ,target ,label (,arg ...))
+     (define argcount (length arg))
+     (define calltype (if (eq? op 'tailcall) 'tail 'nontail))
+     (define (mkarg i) (outward-argument-location calltype argcount i))
+     (append (if (eq? calltype 'tail)
+		 (list `(use ,(preg 'eax))) ;; need a scratch reg
+		 (list))
+	     (list `(prepare-call ,calltype ,argcount))
+	     (do ((i 0 (+ i 1))
+		  (arg arg (cdr arg))
+		  (acc '() (cons `(move-word ,(mkarg i) ,(car arg))
+				 acc)))
+		 ((null? arg) (reverse acc)))
+	     (list `(,op ,(preg 'eax) ,label ,(map mkarg (iota argcount)))
+		   `(cleanup-call ,calltype ,argcount))
+	     (map (lambda (name) `(move-word ,(preg name) ,(junk))) killed-regs)
+	     (map (lambda (name) `(use ,(preg name))) killed-regs)
+	     (list`(move-word ,target ,(preg 'eax))))]
+    [i
+     (list i)]))
+
+(define (expand-instructions init-arg-instrs instrs)
   (define saved-locs (map (lambda (r) (fresh-reg)) saved-regs))
-  (append
-   (map (lambda (loc name) `(move-word ,loc ,(preg name))) saved-locs saved-regs)
-   (append-map (match-lambda
-		[`(wdiv ,target ,s1 ,s2)
-		 (list `(move-word ,(preg 'edx) ,(lit 0))
-		       `(move-word ,(preg 'eax) ,s1)
-		       `(move-word ,(preg 'ecx) ,s2)
-		       `(wdiv ,(preg 'eax) ,(preg 'eax) ,(preg 'ecx))
-		       `(use ,(preg 'edx))
-		       `(move-word ,target ,(preg 'eax)))]
-		[`(compare ,cmpop ,target ,s1 ,s2)
-		 (list `(move-word ,(preg 'eax) ,s1)
-		       `(compare ,cmpop ,(preg 'eax) ,(preg 'eax) ,s2)
-		       `(move-word ,target ,(preg 'eax)))]
-		[`(ret ,target)
-		 (append
-		  (list `(move-word ,(preg 'eax) ,target))
-		  (map (lambda (loc name) `(move-word ,(preg name) ,loc)) saved-locs saved-regs)
-		  (map (lambda (name) `(use ,(preg name))) saved-regs)
-		  (list `(ret ,(preg 'eax))))]
-		[`(,(and op (or 'call 'tailcall)) ,target ,label (,arg ...))
-		 (define argcount (length arg))
-		 (define calltype (if (eq? op 'tailcall) 'tail 'nontail))
-		 (define (mkarg i) (outward-argument-location calltype argcount i))
-		 (append (if (eq? calltype 'tail)
-			     (list `(use ,(preg 'eax))) ;; need a scratch reg
-			     (list))
-			 (list `(prepare-call ,calltype ,argcount))
-			 (do ((i 0 (+ i 1))
-			      (arg arg (cdr arg))
-			      (acc '() (cons `(move-word ,(mkarg i) ,(car arg))
-					     acc)))
-			     ((null? arg) (reverse acc)))
-			 (list `(,op ,(preg 'eax) ,label ,(map mkarg (iota argcount)))
-			       `(cleanup-call ,calltype ,argcount))
-			 (map (lambda (name) `(move-word ,(preg name) ,(junk))) killed-regs)
-			 (map (lambda (name) `(use ,(preg name))) killed-regs)
-			 (list`(move-word ,target ,(preg 'eax))))]
-		[i
-		 (list i)])
-	       instrs)))
+  (define expander (expand-instruction saved-locs))
+  (append (map (lambda (loc name) `(move-word ,loc ,(preg name))) saved-locs saved-regs)
+	  (append-map expander init-arg-instrs)
+	  (append-map expander instrs)))
 
 (define (expand-temporary-loads-and-stores instrs)
   (define (shuffle-for-two-args make-instr target s1 s2)

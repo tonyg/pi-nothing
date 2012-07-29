@@ -24,6 +24,9 @@
 (define frame-alignment 32) ;; must be a power of two
 (define linkage-size 16) ;; ebp + eip
 
+(define killed-regs '(rcx rdx rsi rdi rax r8 r9 r10 r11))
+(define saved-regs '(rbx r12 r13 r14 r15))
+
 (define (inward-argument-location i)
   (case i
     ((0) (preg 'rdi))
@@ -44,51 +47,56 @@
     ((5) (preg 'r9))
     (else (outward-arg calltype count (- i 6)))))
 
-(define (expand-instructions instrs)
-  (define killed-regs '(rcx rdx rsi rdi rax r8 r9 r10 r11))
-  (define saved-regs '(rbx r12 r13 r14 r15))
+(define ((expand-instruction saved-locs) instr)
+  (match instr
+    [`(wdiv ,target ,s1 ,s2)
+     (list `(move-word ,(preg 'rdx) ,(lit 0))
+	   `(move-word ,(preg 'rax) ,s1)
+	   `(move-word ,(preg 'rcx) ,s2)
+	   `(wdiv ,(preg 'rax) ,(preg 'rax) ,(preg 'rcx))
+	   `(use ,(preg 'rdx))
+	   `(move-word ,target ,(preg 'rax)))]
+    [`(compare ,cmpop ,target ,s1 ,s2)
+     (list `(move-word ,(preg 'rax) ,s1)
+	   `(compare ,cmpop ,(preg 'rax) ,(preg 'rax) ,s2)
+	   `(move-word ,target ,(preg 'rax)))]
+    [`(ret ,target)
+     (append (list `(move-word ,(preg 'rax) ,target))
+	     (map (lambda (loc name) `(move-word ,(preg name) ,loc)) saved-locs saved-regs)
+	     (map (lambda (name) `(use ,(preg name))) saved-regs)
+	     (list `(ret ,(preg 'rax))))]
+    [`(,(and op (or 'call 'tailcall)) ,target ,label (,arg ...))
+     (define argcount (length arg))
+     (define calltype (if (eq? op 'tailcall) 'tail 'nontail))
+     (define (mkarg i) (outward-argument-location calltype argcount i))
+     (append (if (eq? calltype 'tail)
+		 (list `(use ,(preg 'rax))) ;; need a scratch reg
+		 (list))
+	     (list `(prepare-call ,calltype ,argcount))
+	     (do ((i 0 (+ i 1))
+		  (arg arg (cdr arg))
+		  (acc '() (cons `(move-word ,(mkarg i) ,(car arg))
+				 acc)))
+		 ((null? arg) (reverse acc)))
+	     (list `(,op ,(preg 'rax) ,label ,(map mkarg (iota argcount)))
+		   `(cleanup-call ,calltype ,argcount))
+	     (map (lambda (name) `(move-word ,(preg name) ,(junk))) killed-regs)
+	     (map (lambda (name) `(use ,(preg name))) killed-regs)
+	     (list`(move-word ,target ,(preg 'rax))))]
+    [i
+     (list i)]))
+
+(define (expand-instructions init-arg-instrs instrs)
   (define saved-locs (map (lambda (r) (fresh-reg)) saved-regs))
-  (append
-   (map (lambda (loc name) `(move-word ,loc ,(preg name))) saved-locs saved-regs)
-   (append-map (match-lambda
-		[`(wdiv ,target ,s1 ,s2)
-		 (list `(move-word ,(preg 'rdx) ,(lit 0))
-		       `(move-word ,(preg 'rax) ,s1)
-		       `(move-word ,(preg 'rcx) ,s2)
-		       `(wdiv ,(preg 'rax) ,(preg 'rax) ,(preg 'rcx))
-		       `(use ,(preg 'rdx))
-		       `(move-word ,target ,(preg 'rax)))]
-		[`(compare ,cmpop ,target ,s1 ,s2)
-		 (list `(move-word ,(preg 'rax) ,s1)
-		       `(compare ,cmpop ,(preg 'rax) ,(preg 'rax) ,s2)
-		       `(move-word ,target ,(preg 'rax)))]
-		[`(ret ,target)
-		 (append
-		  (list `(move-word ,(preg 'rax) ,target))
-		  (map (lambda (loc name) `(move-word ,(preg name) ,loc)) saved-locs saved-regs)
-		  (map (lambda (name) `(use ,(preg name))) saved-regs)
-		  (list `(ret ,(preg 'rax))))]
-		[`(,(and op (or 'call 'tailcall)) ,target ,label (,arg ...))
-		 (define argcount (length arg))
-		 (define calltype (if (eq? op 'tailcall) 'tail 'nontail))
-		 (define (mkarg i) (outward-argument-location calltype argcount i))
-		 (append (if (eq? calltype 'tail)
-			     (list `(use ,(preg 'rax))) ;; need a scratch reg
-			     (list))
-			 (list `(prepare-call ,calltype ,argcount))
-			 (do ((i 0 (+ i 1))
-			      (arg arg (cdr arg))
-			      (acc '() (cons `(move-word ,(mkarg i) ,(car arg))
-					     acc)))
-			     ((null? arg) (reverse acc)))
-			 (list `(,op ,(preg 'rax) ,label ,(map mkarg (iota argcount)))
-			       `(cleanup-call ,calltype ,argcount))
-			 (map (lambda (name) `(move-word ,(preg name) ,(junk))) killed-regs)
-			 (map (lambda (name) `(use ,(preg name))) killed-regs)
-			 (list`(move-word ,target ,(preg 'rax))))]
-		[i
-		 (list i)])
-	       instrs)))
+  (define expander (expand-instruction saved-locs))
+  ;; TODO: revisit the question of whether we get better register
+  ;; allocation with the init-arg-instrs before or after the
+  ;; register-saving instrs. Little practical evidence either way at
+  ;; present, and I haven't thought the question through to see if in
+  ;; theory it should behave better one way or the other.
+  (append (map (lambda (loc name) `(move-word ,loc ,(preg name))) saved-locs saved-regs)
+	  (append-map expander init-arg-instrs)
+	  (append-map expander instrs)))
 
 (define (expand-temporary-loads-and-stores instrs)
   (define (shuffle-for-two-args make-instr target s1 s2)
