@@ -6,10 +6,15 @@
 (provide disassemble-bytes!
 	 disassemble-raw!)
 
-(define lib (ffi-lib "./beaengine-wrapper.so"))
+(define lib (with-handlers ((exn:fail? (lambda (e) #f)))
+	      (ffi-lib "./beaengine-wrapper.so")))
 
 (define %disassemble-block
-  (get-ffi-obj "disassemble_block" lib (_fun _gcpointer _int _int _int -> _void)))
+  (if lib
+      (get-ffi-obj "disassemble_block" lib (_fun _gcpointer _int _int _int -> _void))
+      (lambda (bs len arch show-binary)
+	(display "beaengine not available")
+	(newline))))
 
 (define (disassemble-raw! x len
 			  #:arch [arch (current-cpu-architecture)]
