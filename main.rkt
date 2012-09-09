@@ -139,3 +139,6 @@
 (check-equal? (re '(a b) '(if (> a b) a b) '() '(234 123)) 234)
 (check-equal? (re '(a b) '(if (< a b) a b) '() '(123 234)) 123)
 (check-equal? (re '(a b) '(if (< a b) a b) '() '(234 123)) 123)
+
+(check-equal? (re '() '(/ 123 60) '() '()) 2)
+(check-equal? (re '() '(% 123 60) '() '()) 3)

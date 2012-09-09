@@ -56,6 +56,13 @@
 	   `(wdiv ,(preg 'rax) ,(preg 'rax) ,(preg 'rcx))
 	   `(use ,(preg 'rdx))
 	   `(move-word ,target ,(preg 'rax)))]
+    [`(wmod ,target ,s1 ,s2)
+     (list `(move-word ,(preg 'rdx) ,(lit 0))
+	   `(move-word ,(preg 'rax) ,s1)
+	   `(move-word ,(preg 'rcx) ,s2)
+	   `(wmod ,(preg 'rax) ,(preg 'rax) ,(preg 'rcx))
+	   `(use ,(preg 'rax))
+	   `(move-word ,target ,(preg 'rdx)))]
     [`(compare ,cmpop ,target ,s1 ,s2)
      (list `(move-word ,(preg 'rax) ,s1)
 	   `(compare ,cmpop ,(preg 'rax) ,(preg 'rax) ,s2)
@@ -161,6 +168,7 @@
     [`(w- ,target ,target ,source)			(*op 'sub (xs source) (xs target))]
     [`(w* ,target ,target ,source)			(*imul (xs source) (xs target))]
     [`(wdiv ,(preg 'rax) ,(preg 'rax) ,(preg r))	(*div r)]
+    [`(wmod ,(preg 'rax) ,(preg 'rax) ,(preg r))	(*div r)]
     [`(compare ,cmpop ,(preg 'rax) ,s1 ,s2)
      ;; Let wolog cmpop be <. Then we wish to compute s1 - s2 and have
      ;; the comparison be true if the result of subtraction is
