@@ -6,13 +6,60 @@
 
 (provide )
 
-(define (reg-num reg)
+;; PlusMinus is either '+ or '-
+
+;; An Address is one of
+;; (@imm Integer)
+;; (@reg Register PlusMinus Integer 0) or (@reg Register PlusMinus Register Shift).
+(struct @imm (address) #:prefab)
+(struct @reg (register op offset shift) #:prefab)
+
+;; A AddressMode is either a plain Address ("offset" addressing), or
+;; one of the following:
+(struct @pre (address) #:prefab)
+(struct @post (address) #:prefab)
+
+;; A Shift can be a signed number, meaning a left or right LOGICAL
+;; shift by a constant number of places (negative meaning rightward),
+;; or one of the following structs:
+(struct @asr (n) #:prefab)
+(struct @ror (n) #:prefab) ;; n must not be 0
+(struct @rrx () #:prefab)
+
+(define (@reg-imm? r)
+  (and (@reg? r)
+       (equal? (@reg-shift r) 0)
+       (number? (@reg-offset r))))
+
+(define (@reg-reg? r)
+  (and (@reg? r)
+       (not (@reg-imm? r))))
+
+(define (address-mode->address am)
   (cond
-   ((number? reg) reg)
-   ((eq? reg 'sp) 13)
-   ((eq? reg 'lr) 14)
-   ((eq? reg 'pc) 15)
-   (else (error 'reg-num "Invalid register ~v" reg))))
+   ((@pre? am) (@pre-address am))
+   ((@post? am) (@post-address am))
+   (else am)))
+
+(define (reg-num reg)
+  (case reg
+    ((r0) 0)
+    ((r1) 1)
+    ((r2) 2)
+    ((r3) 3)
+    ((r4) 4)
+    ((r5) 5)
+    ((r6) 6)
+    ((r7) 7)
+    ((r8) 8)
+    ((r9) 9)
+    ((r10) 10)
+    ((r11) 11)
+    ((r12) 12)
+    ((r13 sp) 13)
+    ((r14 lr) 14)
+    ((r15 pc) 15)
+    (else (error 'reg-num "Invalid register ~v" reg))))
 
 (define (condition-code-num cc)
   (case cc
@@ -39,26 +86,111 @@
       (if v 1 0)
       v))
 
-(define (*str cc p u w rn rt imm5 type rm) ;; A8.6.195, STR (register), A8-386 in ARM DDI 0406B
+(define (u-bit u)
+  (case u
+    ((1 +) 1)
+    ((0 -) 0)
+    (else (error 'u-bit "Invalid U-bit value ~v" u))))
+
+;; index = (P == ‘1’);  add = (U == ‘1’);  wback = (P == ‘0’) || (W == ‘1’); 
+;; STR<c><q> <Rt>, [<Rn> {, #+/-<imm>}] Offset: index==TRUE, wback==FALSE
+;;  - p=1, w=0
+;; STR<c><q> <Rt>, [<Rn>, #+/-<imm>]! Pre-indexed: index==TRUE, wback==TRUE 
+;;  - p=1, w=1
+;; STR<c><q> <Rt>, [<Rn>], #+/-<imm> Post-indexed: index==FALSE, wback==TRUE
+;;  - p=0, w=0 (!! if w=1, it's a STRT instead)
+;;
+;; So p=0 only when post-indexed, and w=1 only when pre-indexed.
+(define (address-mode->p-bit a) (if (@post? a) 0 1))
+(define (address-mode->w-bit a) (if (@pre? a) 1 0))
+
+(define (reg-u r)
+  (case (@reg-op r)
+    ((+) 1)
+    ((-) 0)))
+
+;; Shift -> Number
+(define (shift-type-code s)
+  (cond
+   ((@asr? s) 2)
+   ((@ror? s) 3)
+   ((@rrx? s) 3)
+   ((negative? s) 1)
+   (else 0))) ;; positive or zero
+
+;; Shift -> Number
+(define (shift-immediate s)
+  (cond
+   ((@asr? s) (@asr-n s))
+   ((@ror? s) (@ror-n s))
+   ((@rrx? s) 0)
+   ((negative? s) (- s))
+   (else s)))
+
+;; Register Shift -> Number
+(define (shift-field r s)
+  (bitfield 5 (shift-immediate s)
+	    2 (shift-type-code s)
+	    1 0
+	    4 (reg-num r)))
+
+;; Condition Register AddressMode -> MachineCode
+(define (*str cc rt am)
+  (define p (address-mode->p-bit am))
+  (define w (address-mode->w-bit am))
+  (define a (address-mode->address am))
+  (define u (reg-u a))
+  (define op (cond ((@reg-imm? a) 2) ((@reg-reg? a) 3)))
   (imm32 (bitfield 4 (condition-code-num cc)
-		   3 3
+		   3 op
 		   1 (bool->bit p)
-		   1 (bool->bit u)
+		   1 (u-bit u)
 		   1 0
 		   1 (bool->bit w)
 		   1 0
-		   4 (reg-num rn)
+		   4 (reg-num (@reg-register a))
 		   4 (reg-num rt)
-		   5 imm5
-		   2 type
-		   1 0
-		   4 rm)))
+		   12 (if (@reg-imm? a)
+			  (@reg-offset a)
+			  (shift-field (@reg-offset a) (@reg-shift a))))))
+
+;;---------------------------------------------------------------------------
+
+(define (spacer)
+  (list (imm64 0)
+	(imm64 0)))
 
 (require (only-in racket/list flatten))
+
 (let-values (((instrs relocs)
 	      (internal-link 32
 			     imm32*
-			     (flatten (list (*str 'al  0 0 0  0 0  0 0  0)
-					    (*str 'gt  0 0 0  1 2  0 0  3))))))
+			     (flatten (list (*str 'al 'r0 (@reg 'r0 '+ 0 0))
+					    (*str 'al 'r0 (@reg 'r0 '- 0 0))
+					    (*str 'al 'r0 (@reg 'r0 '+ 'r0 0))
+					    (*str 'al 'r0 (@reg 'r0 '- 'r0 0))
+
+					    (*str 'gt 'r1 (@reg 'r2 '+ 123 0))
+					    (*str 'gt 'r1 (@reg 'r2 '- 123 0))
+					    (*str 'gt 'r1 (@reg 'r2 '+ #xaaa 0))
+					    (*str 'gt 'r1 (@reg 'r2 '- #xaaa 0))
+
+					    (*str 'gt 'r1 (@reg 'r2 '+ 'r3 0))
+					    (*str 'gt 'r1 (@reg 'r2 '+ 'r3 1))
+					    (*str 'gt 'r1 (@reg 'r2 '+ 'r3 -1))
+					    (*str 'gt 'r1 (@reg 'r2 '+ 'r3 (@asr 1)))
+					    (*str 'gt 'r1 (@reg 'r2 '+ 'r3 (@ror 1)))
+					    (*str 'gt 'r1 (@reg 'r2 '+ 'r3 (@rrx)))
+
+					    (*str 'gt 'r1 (@reg 'r2 '- 'r3 0))
+					    (*str 'gt 'r1 (@reg 'r2 '- 'r3 1))
+					    (*str 'gt 'r1 (@reg 'r2 '- 'r3 -1))
+					    (*str 'gt 'r1 (@reg 'r2 '- 'r3 (@asr 1)))
+					    (*str 'gt 'r1 (@reg 'r2 '- 'r3 (@ror 1)))
+					    (*str 'gt 'r1 (@reg 'r2 '- 'r3 (@rrx)))
+
+					    (spacer))))))
   (write-bytes (list->bytes instrs))
   (void))
+
+;; A division algorithm is a good first test
