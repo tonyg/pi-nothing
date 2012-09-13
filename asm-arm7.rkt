@@ -134,8 +134,8 @@
 	    1 0
 	    4 (reg-num r)))
 
-;; Condition Register AddressMode -> MachineCode
-(define (*str cc rt am)
+;; Boolean Condition Register AddressMode -> MachineCode
+(define (ldr-or-str load? cc rt am)
   (define p (address-mode->p-bit am))
   (define w (address-mode->w-bit am))
   (define a (address-mode->address am))
@@ -147,12 +147,15 @@
 		   1 (u-bit u)
 		   1 0
 		   1 (bool->bit w)
-		   1 0
+		   1 (bool->bit load?)
 		   4 (reg-num (@reg-register a))
 		   4 (reg-num rt)
 		   12 (if (@reg-imm? a)
 			  (@reg-offset a)
 			  (shift-field (@reg-offset a) (@reg-shift a))))))
+
+(define (*str cc rt am) (ldr-or-str #f cc rt am))
+(define (*ldr cc rt am) (ldr-or-str #t cc rt am))
 
 ;;---------------------------------------------------------------------------
 
@@ -162,34 +165,41 @@
 
 (require (only-in racket/list flatten))
 
-(let-values (((instrs relocs)
-	      (internal-link 32
-			     imm32*
-			     (flatten (list (*str 'al 'r0 (@reg 'r0 '+ 0 0))
-					    (*str 'al 'r0 (@reg 'r0 '- 0 0))
-					    (*str 'al 'r0 (@reg 'r0 '+ 'r0 0))
-					    (*str 'al 'r0 (@reg 'r0 '- 'r0 0))
+(let ()
+  (define (loads/stores ***)
+    (list (*** 'al 'r0 (@reg 'r0 '+ 0 0))
+	  (*** 'al 'r0 (@reg 'r0 '- 0 0))
+	  (*** 'al 'r0 (@reg 'r0 '+ 'r0 0))
+	  (*** 'al 'r0 (@reg 'r0 '- 'r0 0))
 
-					    (*str 'gt 'r1 (@reg 'r2 '+ 123 0))
-					    (*str 'gt 'r1 (@reg 'r2 '- 123 0))
-					    (*str 'gt 'r1 (@reg 'r2 '+ #xaaa 0))
-					    (*str 'gt 'r1 (@reg 'r2 '- #xaaa 0))
+	  (*** 'eq 'r1 (@reg 'pc '+ 123 0))
+	  (*** 'eq 'r1 (@reg 'pc '- 123 0))
 
-					    (*str 'gt 'r1 (@reg 'r2 '+ 'r3 0))
-					    (*str 'gt 'r1 (@reg 'r2 '+ 'r3 1))
-					    (*str 'gt 'r1 (@reg 'r2 '+ 'r3 -1))
-					    (*str 'gt 'r1 (@reg 'r2 '+ 'r3 (@asr 1)))
-					    (*str 'gt 'r1 (@reg 'r2 '+ 'r3 (@ror 1)))
-					    (*str 'gt 'r1 (@reg 'r2 '+ 'r3 (@rrx)))
+	  (*** 'gt 'r1 (@reg 'r2 '+ 123 0))
+	  (*** 'gt 'r1 (@reg 'r2 '- 123 0))
+	  (*** 'gt 'r1 (@reg 'r2 '+ #xaaa 0))
+	  (*** 'gt 'r1 (@reg 'r2 '- #xaaa 0))
 
-					    (*str 'gt 'r1 (@reg 'r2 '- 'r3 0))
-					    (*str 'gt 'r1 (@reg 'r2 '- 'r3 1))
-					    (*str 'gt 'r1 (@reg 'r2 '- 'r3 -1))
-					    (*str 'gt 'r1 (@reg 'r2 '- 'r3 (@asr 1)))
-					    (*str 'gt 'r1 (@reg 'r2 '- 'r3 (@ror 1)))
-					    (*str 'gt 'r1 (@reg 'r2 '- 'r3 (@rrx)))
+	  (*** 'gt 'r1 (@reg 'r2 '+ 'r3 0))
+	  (*** 'gt 'r1 (@reg 'r2 '+ 'r3 1))
+	  (*** 'gt 'r1 (@reg 'r2 '+ 'r3 -1))
+	  (*** 'gt 'r1 (@reg 'r2 '+ 'r3 (@asr 1)))
+	  (*** 'gt 'r1 (@reg 'r2 '+ 'r3 (@ror 1)))
+	  (*** 'gt 'r1 (@reg 'r2 '+ 'r3 (@rrx)))
 
-					    (spacer))))))
+	  (*** 'gt 'r1 (@reg 'r2 '- 'r3 0))
+	  (*** 'gt 'r1 (@reg 'r2 '- 'r3 1))
+	  (*** 'gt 'r1 (@reg 'r2 '- 'r3 -1))
+	  (*** 'gt 'r1 (@reg 'r2 '- 'r3 (@asr 1)))
+	  (*** 'gt 'r1 (@reg 'r2 '- 'r3 (@ror 1)))
+	  (*** 'gt 'r1 (@reg 'r2 '- 'r3 (@rrx)))))
+  (define-values (instrs relocs)
+    (internal-link 32
+		   imm32*
+		   (flatten (list (loads/stores *str)
+				  (spacer)
+				  (loads/stores *ldr)
+				  (spacer)))))
   (write-bytes (list->bytes instrs))
   (void))
 
