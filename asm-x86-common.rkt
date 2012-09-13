@@ -73,12 +73,6 @@
      ((member code-sym (vector-ref condition-codes i)) i)
      (else (loop (+ i 1))))))
 
-(define (register=? x y)
-  (eq? x y))
-
-(define (register? x)
-  (symbol? x))
-
 ;; In 32-bit mode, #x66 is the 16-bit-operand override prefix
 
 (define (rex reg-num w rreg xreg breg)

@@ -6,6 +6,8 @@
 	 (struct-out label-anchor)
 
 	 immediate?
+	 register=?
+	 register?
 
 	 bitfield
 
@@ -13,6 +15,7 @@
 	 fourbyte-immediate?
 	 imm8
 	 shr
+	 ror32
 	 imm-endianness
 	 imm32*
 	 imm32
@@ -33,6 +36,12 @@
   (or (number? x)
       (relocation? x)
       (label-reference? x)))
+
+(define (register=? x y)
+  (eq? x y))
+
+(define (register? x)
+  (symbol? x))
 
 (define (bitfield . args)
   (define (loop acc args)
@@ -65,6 +74,12 @@
 
 (define (shr v amount)
   (arithmetic-shift v (- amount)))
+
+(define (ror32 v amount0)
+  (define amount (modulo amount0 32))
+  (bitwise-and #xffffffff
+	       (bitwise-ior (bitwise-bit-field v amount 32)
+			    (arithmetic-shift (bitwise-bit-field v 0 amount) (- 32 amount)))))
 
 (define imm-endianness (make-parameter 'little))
 
