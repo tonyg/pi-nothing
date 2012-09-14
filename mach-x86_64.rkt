@@ -85,6 +85,11 @@
 		  (acc '() (cons `(move-word ,(mkarg i) ,(car arg))
 				 acc)))
 		 ((null? arg) (reverse acc)))
+	     (if (eq? calltype 'tail)
+		 (append
+		  (map (lambda (loc name) `(move-word ,(preg name) ,loc)) saved-locs saved-regs)
+		  (map (lambda (name) `(use ,(preg name))) saved-regs))
+		 (list))
 	     (list `(,op ,(preg 'rax) ,label ,(map mkarg (iota argcount)))
 		   `(cleanup-call ,calltype ,argcount))
 	     (map (lambda (name) `(move-word ,(preg name) ,(junk))) killed-regs)
