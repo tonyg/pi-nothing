@@ -142,7 +142,7 @@
 		(list i)])
 	      instrs))
 
-(define ((assemble-instr inward-arg-count) i)
+(define ((assemble-instr inward-arg-count temp-count) i)
   (define (xs v)
     (match v
       [(lit n) n]
@@ -154,14 +154,6 @@
        (@reg 'rbp (* word-size-bytes (- (+ n 2) (- outward-arg-count inward-arg-count))))]
       ))
   (match i
-    [`(enter ,n)
-     (define temp-size (* n word-size-bytes))
-     (define total-requirement (+ temp-size linkage-size))
-     (define frame-size (round-up-to-nearest frame-alignment total-requirement))
-     (define delta (- frame-size linkage-size))
-     (list (*push 'rbp)
-	   (*mov 'rsp 'rbp)
-	   (*op 'sub delta 'rsp))]
     [`(move-word ,target ,source)			(*mov (xs source) (xs target))]
     [`(load ,(preg target) ,(lit n) ,ofs)		(*mov (@imm (+ n ofs)) target)]
     [`(w+ ,target ,target ,source)			(*op 'add (xs source) (xs target))]
@@ -214,16 +206,25 @@
 	   (*jmp (label-reference tag #f)))]
     [_ (error 'assemble-instr "Cannot assemble ~v" i)]))
 
-(define ((assemble-instr* inward-arg-count) i)
-  (define bs ((assemble-instr inward-arg-count) i))
+(define ((assemble-instr* inward-arg-count temp-count) i)
+  (define bs ((assemble-instr inward-arg-count temp-count) i))
   (write `(,i -> ,bs))
   (newline)
   (flush-output)
   bs)
 
-(define (assemble inward-arg-count instrs)
-  (define pre-linking (flatten (map (assemble-instr* inward-arg-count) instrs)))
+(define (assemble inward-arg-count temp-count instrs)
+  (define temp-size (* temp-count word-size-bytes))
+  (define total-requirement (+ temp-size linkage-size))
+  (define frame-size (round-up-to-nearest frame-alignment total-requirement))
+  (define delta (- frame-size linkage-size))
+
+  (define pre-linking (flatten (list (*push 'rbp)
+				     (*mov 'rsp 'rbp)
+				     (*op 'sub delta 'rsp)
+				     (map (assemble-instr* inward-arg-count temp-count) instrs))))
   (write `(pre-linking ,pre-linking)) (newline) (flush-output)
+
   (define-values (linked relocs) (internal-link-64 pre-linking))
   (write `(relocations ,relocs)) (newline) (flush-output)
   (list->bytes linked))

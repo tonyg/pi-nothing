@@ -35,5 +35,5 @@
 (define (expand-temporary-loads-and-stores md instrs)
   ((machine-description-expand-temporary-loads-and-stores md) instrs))
 
-(define (assemble md inward-arg-count instrs)
-  ((machine-description-assemble md) inward-arg-count instrs))
+(define (assemble md inward-arg-count temp-count instrs)
+  ((machine-description-assemble md) inward-arg-count temp-count instrs))
