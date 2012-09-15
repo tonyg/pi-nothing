@@ -214,12 +214,16 @@
 		   4 9
 		   4 (reg-num rn))))
 
-(define (*b cc imm24)
+(define (b-or-bl cc link? imm24)
   (when (not (zero? (bitwise-and imm24 3)))
     (error '*b "Immediate PC-relative branch target offset must be a multiple of 4: ~v" imm24))
   (imm32 (bitfield 4 (condition-code-num cc)
-		   4 10
+		   3 5
+		   1 (bool->bit link?)
 		   -24 (shr imm24 2))))
+
+(define (*b cc imm24) (b-or-bl cc #f imm24))
+(define (*bl cc imm24) (b-or-bl cc #t imm24))
 
 ;;---------------------------------------------------------------------------
 
@@ -320,6 +324,11 @@
 		     ;; (*b 'al 0)
 		     ;; (*b 'gt -256)
 		     ;; (*b 'nv 256)
+		     ;; (spacer)
+
+		     ;; (*bl 'al 0)
+		     ;; (*bl 'gt -256)
+		     ;; (*bl 'nv 8)
 		     ;; (spacer)
 
 		     ;; (*b 'al -8)
