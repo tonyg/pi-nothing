@@ -230,6 +230,7 @@
   (internal-link 4 imm32* instrs))
 
 ;;---------------------------------------------------------------------------
+#|
 
 (define (spacer)
   (list (imm64 0)
@@ -372,3 +373,5 @@
 ;; A division algorithm is a good first test
 
 ;; 0x101f1000 is UART0 on versatilepb
+
+|#
