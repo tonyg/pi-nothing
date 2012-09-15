@@ -65,7 +65,7 @@
 
 (te '() `(/ (? 123) (? 234)) '())
 
-(te '() `(let ((mutable a 0)) (while (< a 10) (set! a (+ a 1))) a) '())
+(te '() `(let ((mutable a 0)) (while (<s a 10) (set! a (+ a 1))) a) '())
 
 (te '()
     `(let ((a (? 123))
@@ -81,7 +81,7 @@
     `(+ (fib 2) (fib 1))
     `((fib ,(label 'FIB))))
 
-(te '() `(if (if (< 11 22) 33 44) 55 66) '())
+(te '() `(if (if (<s 11 22) 33 44) 55 66) '())
 (te '()
     `(cond [(A) 11] [(B) 22] [(C) 33])
     `((A ,(label 'A))
@@ -89,7 +89,7 @@
       (C ,(label 'C))))
 
 (te '(arg)
-    `(if (< arg 2)
+    `(if (<s arg 2)
 	 arg
 	 (+ (fib (- arg 1)) (fib (- arg 2))))
     `((fib ,(label 'FIB))))
@@ -100,7 +100,7 @@
     '(let ((mutable zx 0)
 	   (mutable zy 0)
 	   (mutable i 0))
-       (while (< (+ (* zx zx) (* zy zy)) 4)
+       (while (<s (+ (* zx zx) (* zy zy)) 4)
 	 (let ((tx (+ cx (- (* zx zx) (* zy zy))))
 	       (ty (+ cy (* 2 zx zy))))
 	   (set! i (+ i 1))
@@ -113,7 +113,7 @@
     '(let ((mutable zx 0)
 	   (mutable zy 0)
 	   (mutable i 0))
-       (while (< (+ (* zx zx) (* zy zy)) 4)
+       (while (<s (+ (* zx zx) (* zy zy)) 4)
 	 (let ((tx zx) (ty zy))
 	   (set! zx (+ cx (- (* tx tx) (* ty ty))))
 	   (set! zy (+ cy (* 2 tx ty)))
@@ -134,17 +134,17 @@
     `((x ,(label 'X))))
 
 (check-equal? (re '(a b) '(+ a b) '() '(123 234)) 357)
-(check-equal? (re '(a b) '(if (> a b) 111 222) '() '(123 234)) 222)
-(check-equal? (re '(a b) '(if (> a b) 111 222) '() '(234 123)) 111)
-(check-equal? (re '(a b) '(if (< a b) 111 222) '() '(123 234)) 111)
+(check-equal? (re '(a b) '(if (>s a b) 111 222) '() '(123 234)) 222)
+(check-equal? (re '(a b) '(if (>s a b) 111 222) '() '(234 123)) 111)
+(check-equal? (re '(a b) '(if (<s a b) 111 222) '() '(123 234)) 111)
 
 (check-equal? (re '(a b) '(if (= a b) 111 222) '() '(123 123)) 111)
 (check-equal? (re '(a b) '(if (= a b) 111 222) '() '(123 234)) 222)
 
-(check-equal? (re '(a b) '(if (> a b) a b) '() '(123 234)) 234)
-(check-equal? (re '(a b) '(if (> a b) a b) '() '(234 123)) 234)
-(check-equal? (re '(a b) '(if (< a b) a b) '() '(123 234)) 123)
-(check-equal? (re '(a b) '(if (< a b) a b) '() '(234 123)) 123)
+(check-equal? (re '(a b) '(if (>s a b) a b) '() '(123 234)) 234)
+(check-equal? (re '(a b) '(if (>s a b) a b) '() '(234 123)) 234)
+(check-equal? (re '(a b) '(if (<s a b) a b) '() '(123 234)) 123)
+(check-equal? (re '(a b) '(if (<s a b) a b) '() '(234 123)) 123)
 
 (check-equal? (re '() '(/ 123 60) '() '()) 2)
 (check-equal? (re '() '(% 123 60) '() '()) 3)

@@ -150,7 +150,12 @@
      ;; negative. Now, (*op 'cmp source target) is based around target
      ;; - source, so we need to make sure the arguments are in the
      ;; correct order.
-     (define cc (case cmpop ((<=) 'le) ((<) 'l) ((=) 'e) ((<>) 'ne) ((>) 'g) ((>=) 'ge)))
+     (define cc (case cmpop
+		  ((<=s) 'le) ((<s) 'l)
+		  ((<=u) 'be) ((<u) 'b)
+		  ((=) 'e) ((<>) 'ne)
+		  ((>s) 'g) ((>=s) 'ge)
+		  ((>u) 'a) ((>=u) 'ae)))
      (list (*op 'cmp (xs s2) (xs s1))
 	   (*setcc-eax cc))]
     [`(prepare-call nontail ,arg-count)
