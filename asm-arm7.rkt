@@ -4,7 +4,8 @@
 
 (require "asm-common.rkt")
 
-(provide )
+(provide (all-from-out "asm-common.rkt")
+	 (all-defined-out)) ;; TODO
 
 ;; TODO: register-shifted-register Deltas
 
@@ -225,6 +226,9 @@
 (define (*b cc imm24) (b-or-bl cc #f imm24))
 (define (*bl cc imm24) (b-or-bl cc #t imm24))
 
+(define (internal-link-32 instrs)
+  (internal-link 4 imm32* instrs))
+
 ;;---------------------------------------------------------------------------
 
 (define (spacer)
@@ -279,90 +283,89 @@
 	  (*** 'gt 'r1 (@reg 'r2 '- (@shifted 'r3 (@ror 1))))
 	  (*** 'gt 'r1 (@reg 'r2 '- (@shifted 'r3 (@rrx))))))
   (define-values (instrs relocs)
-    (internal-link 32
-		   imm32*
-		   (flatten
-		    (list
-		     ;; (loads/stores *str)
-		     ;; (spacer)
+    (internal-link-32
+     (flatten
+      (list
+       ;; (loads/stores *str)
+       ;; (spacer)
 
-		     ;; (loads/stores *ldr)
-		     ;; (spacer)
+       ;; (loads/stores *ldr)
+       ;; (spacer)
 
-		     ;; (*mov 'lt 1 'r6 #x000000ff)
-		     ;; ;;(*mov 'lt 1 'r6 #x000001ff) -- too wide
-		     ;; ;;(*mov 'lt 1 'r6 #x000001fe) -- single-bit rotation doesn't fit
-		     ;; (*mov 'lt 1 'r6 #x000003fc)
-		     ;; (*mov 'lt 1 'r6 #x00000ff0)
-		     ;; (*mov 'lt 1 'r6 #x003fc000)
-		     ;; (*mov 'lt 1 'r6 #x00ff0000)
-		     ;; (*mov 'lt 1 'r6 #xf000000f)
-		     ;; (spacer)
+       ;; (*mov 'lt 1 'r6 #x000000ff)
+       ;; ;;(*mov 'lt 1 'r6 #x000001ff) -- too wide
+       ;; ;;(*mov 'lt 1 'r6 #x000001fe) -- single-bit rotation doesn't fit
+       ;; (*mov 'lt 1 'r6 #x000003fc)
+       ;; (*mov 'lt 1 'r6 #x00000ff0)
+       ;; (*mov 'lt 1 'r6 #x003fc000)
+       ;; (*mov 'lt 1 'r6 #x00ff0000)
+       ;; (*mov 'lt 1 'r6 #xf000000f)
+       ;; (spacer)
 
-		     ;; (*mov 'ne 0 'r9 123)
-		     ;; ;;(*mov 'ne 1 'r9 #xaaa) -- too wide
-		     ;; (*mov 'ne 0 'r9 'r8)
-		     ;; (*mov 'ne 1 'r9 (@shifted 'r8 1))
-		     ;; (*mov 'ne 0 'r9 (@shifted 'r8 -1))
-		     ;; (*mov 'ne 1 'r9 (@shifted 'r8 (@asr 1)))
-		     ;; (*mov 'ne 0 'r9 (@shifted 'r8 (@ror 1)))
-		     ;; (*mov 'ne 1 'r9 (@shifted 'r8 (@rrx)))
-		     ;; (spacer)
+       ;; (*mov 'ne 0 'r9 123)
+       ;; ;;(*mov 'ne 1 'r9 #xaaa) -- too wide
+       ;; (*mov 'ne 0 'r9 'r8)
+       ;; (*mov 'ne 1 'r9 (@shifted 'r8 1))
+       ;; (*mov 'ne 0 'r9 (@shifted 'r8 -1))
+       ;; (*mov 'ne 1 'r9 (@shifted 'r8 (@asr 1)))
+       ;; (*mov 'ne 0 'r9 (@shifted 'r8 (@ror 1)))
+       ;; (*mov 'ne 1 'r9 (@shifted 'r8 (@rrx)))
+       ;; (spacer)
 
-		     ;; (*add 'lt 1 'r6 'r11 #x00000ff0)
-		     ;; (*add 'lt 1 'r6 'r11 #x003fc000)
-		     ;; (*add 'ne 0 'r9 'r11 123)
-		     ;; ;; (*add 'ne 1 'r9 'r11 #xaaa) -- too wide
-		     ;; (*add 'ne 0 'r9 'r11 'r8)
-		     ;; (*add 'ne 1 'r9 'r11 (@shifted 'r8 1))
-		     ;; (*add 'ne 0 'r9 'r11 (@shifted 'r8 -1))
-		     ;; (*add 'ne 1 'r9 'r11 (@shifted 'r8 (@asr 1)))
-		     ;; (*add 'ne 0 'r9 'r11 (@shifted 'r8 (@ror 1)))
-		     ;; (*add 'ne 1 'r9 'r11 (@shifted 'r8 (@rrx)))
-		     ;; (spacer)
+       ;; (*add 'lt 1 'r6 'r11 #x00000ff0)
+       ;; (*add 'lt 1 'r6 'r11 #x003fc000)
+       ;; (*add 'ne 0 'r9 'r11 123)
+       ;; ;; (*add 'ne 1 'r9 'r11 #xaaa) -- too wide
+       ;; (*add 'ne 0 'r9 'r11 'r8)
+       ;; (*add 'ne 1 'r9 'r11 (@shifted 'r8 1))
+       ;; (*add 'ne 0 'r9 'r11 (@shifted 'r8 -1))
+       ;; (*add 'ne 1 'r9 'r11 (@shifted 'r8 (@asr 1)))
+       ;; (*add 'ne 0 'r9 'r11 (@shifted 'r8 (@ror 1)))
+       ;; (*add 'ne 1 'r9 'r11 (@shifted 'r8 (@rrx)))
+       ;; (spacer)
 
-		     ;; (*b 'al 0)
-		     ;; (*b 'gt -256)
-		     ;; (*b 'nv 256)
-		     ;; (spacer)
+       ;; (*b 'al 0)
+       ;; (*b 'gt -256)
+       ;; (*b 'nv 256)
+       ;; (spacer)
 
-		     ;; (*bl 'al 0)
-		     ;; (*bl 'gt -256)
-		     ;; (*bl 'nv 8)
-		     ;; (spacer)
+       ;; (*bl 'al 0)
+       ;; (*bl 'gt -256)
+       ;; (*bl 'nv 8)
+       ;; (spacer)
 
-		     ;; (*b 'al -8)
-		     ;; (*b 'gt -8)
-		     ;; (*b 'nv -8)
-		     ;; (spacer)
+       ;; (*b 'al -8)
+       ;; (*b 'gt -8)
+       ;; (*b 'nv -8)
+       ;; (spacer)
 
-		     ;; (*cmp 'al 'r0 'r1)
-		     ;; (*cmp 'al 'r3 'r4)
-		     ;; (*cmp 'al 'r5 (@shifted 'r8 2))
+       ;; (*cmp 'al 'r0 'r1)
+       ;; (*cmp 'al 'r3 'r4)
+       ;; (*cmp 'al 'r5 (@shifted 'r8 2))
 
-		     ;; (*mul 'al 0 'r0 'r1 'r2)
-		     ;; (spacer)
+       ;; (*mul 'al 0 'r0 'r1 'r2)
+       ;; (spacer)
 
-		     ;; (*ldr 'al 'r0 (@reg 'pc '+ 12)) ;; + 16 - 8 = 8
-		     ;; (*mov 'al 0 'r1 65) ;; ASCII for capital A
-		     ;; (*str 'al 'r1 (@reg 'r0 '+ 0)) ;; r1 into r0
-		     ;; (*add 'al 0 'r1 'r1 1) ;; increment byte
-		     ;; (*b 'al -16)
-		     ;; (imm32 #x101f1000) ;; UART0
+       ;; (*ldr 'al 'r0 (@reg 'pc '+ 12)) ;; + 16 - 8 = 8
+       ;; (*mov 'al 0 'r1 65) ;; ASCII for capital A
+       ;; (*str 'al 'r1 (@reg 'r0 '+ 0)) ;; r1 into r0
+       ;; (*add 'al 0 'r1 'r1 1) ;; increment byte
+       ;; (*b 'al -16)
+       ;; (imm32 #x101f1000) ;; UART0
 
-		     (*ldr 'al 'r0 (@reg 'pc '+ 0)) ;; + 16 - 8 = 8
-		     (*b 'al 0)
-		     (imm32 #x101f1000) ;; UART0
+       (*ldr 'al 'r0 (@reg 'pc '+ 0)) ;; + 16 - 8 = 8
+       (*b 'al 0)
+       (imm32 #x101f1000) ;; UART0
 
-		     (*mov 'al 0 'r2 0)
+       (*mov 'al 0 'r2 0)
 
-		     (*add 'al 0 'r1 'r2 65) ;; ASCII for capital A
-		     (*str 'al 'r1 (@reg 'r0 '+ 0)) ;; r1 into r0
-		     (*add 'al 0 'r2 'r2 1) ;; increment byte
-		     (*and 'al 0 'r2 'r2 31) ;; truncate
-		     (*b 'al (* (- -4 2) 4))
+       (*add 'al 0 'r1 'r2 65) ;; ASCII for capital A
+       (*str 'al 'r1 (@reg 'r0 '+ 0))	     ;; r1 into r0
+       (*add 'al 0 'r2 'r2 1)		     ;; increment byte
+       (*and 'al 0 'r2 'r2 31)		     ;; truncate
+       (*b 'al (* (- -4 2) 4))
 
-		     ))))
+       ))))
   (write-bytes (list->bytes instrs))
   (void))
 
