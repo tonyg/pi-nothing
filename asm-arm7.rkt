@@ -6,6 +6,8 @@
 
 (provide )
 
+;; TODO: register-shifted-register Deltas
+
 ;; A Delta is either Integer or Register or a (@shifted Register Shift).
 (struct @shifted (reg shift) #:prefab)
 
@@ -195,6 +197,8 @@
 (define (*sbc cc s rd rn delta) (alu-op 6 cc s rd rn delta))
 (define (*rsc cc s rd rn delta) (alu-op 7 cc s rd rn delta))
 
+(define (*cmp cc      rn delta) (alu-op 10 cc 1 'r0 rn delta))
+
 (define (*orr cc s rd rn delta) (alu-op 12 cc s rd rn delta))
 (define (*mov cc s rd    delta) (alu-op 13 cc s rd 'r0 delta))
 (define (*bic cc s rd rn delta) (alu-op 14 cc s rd rn delta))
@@ -322,6 +326,10 @@
 		     ;; (*b 'gt -8)
 		     ;; (*b 'nv -8)
 		     ;; (spacer)
+
+		     ;; (*cmp 'al 'r0 'r1)
+		     ;; (*cmp 'al 'r3 'r4)
+		     ;; (*cmp 'al 'r5 (@shifted 'r8 2))
 
 		     ;; (*mul 'al 0 'r0 'r1 'r2)
 		     ;; (spacer)
