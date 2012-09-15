@@ -200,6 +200,16 @@
 (define (*bic cc s rd rn delta) (alu-op 14 cc s rd rn delta))
 (define (*mvn cc s rd    delta) (alu-op 15 cc s rd 'r0 delta))
 
+(define (*mul cc s rd rn rm)
+  (imm32 (bitfield 4 (condition-code-num cc)
+		   7 0
+		   1 (bool->bit s)
+		   4 (reg-num rd)
+		   4 0
+		   4 (reg-num rm)
+		   4 9
+		   4 (reg-num rn))))
+
 (define (*b cc imm24)
   (when (not (zero? (bitwise-and imm24 3)))
     (error '*b "Immediate PC-relative branch target offset must be a multiple of 4: ~v" imm24))
@@ -311,6 +321,9 @@
 		     ;; (*b 'al -8)
 		     ;; (*b 'gt -8)
 		     ;; (*b 'nv -8)
+		     ;; (spacer)
+
+		     ;; (*mul 'al 0 'r0 'r1 'r2)
 		     ;; (spacer)
 
 		     ;; (*ldr 'al 'r0 (@reg 'pc '+ 12)) ;; + 16 - 8 = 8
