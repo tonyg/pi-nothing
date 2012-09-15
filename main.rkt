@@ -16,11 +16,13 @@
 
 (require "lir.rkt")
 (require "machine.rkt")
+(require "mach-arm7.rkt")
 (require "mach-i386.rkt")
 (require "mach-x86_64.rkt")
 
 ;;(define te-machine machine-x86_64)
 (define te-machine machine-i386)
+;;(define te-machine machine-arm7)
 
 (define (te args exp env)
   (display "===========================================================================")
