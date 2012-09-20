@@ -19,6 +19,7 @@
   (define racket-file-info (with-output-to-string (lambda () (system "file -L `which racket`"))))
   (cond
    [(regexp-match #rx"x86_64" racket-file-info) 'x86_64]
+   [(regexp-match #rx"x86-64" racket-file-info) 'x86_64]
    [(regexp-match #rx"i386" racket-file-info) 'i386]
    [(regexp-match #rx"80386" racket-file-info) 'i386]
    [else (log-warning
