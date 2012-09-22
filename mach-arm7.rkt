@@ -181,8 +181,28 @@
 	   (@reg 'sp '- (* (- inward-arg-count n 4 1) word-size-bytes)))]
       ))
   (match i
-    [`(move-word ,target ,source)		(*mov 'al 0 (xs target) (xs source))]
-    [`(load ,(preg target) ,(lit n) ,ofs)	(*mov 'al 0 target (@imm (+ n ofs)))]
+    [`(move-word ,target ,source)
+     (cond
+      [(temporary? target)
+       ;; we know by the action of expand-temporary-loads-and-stores
+       ;; that we'll not see both a temporary source and target. Note
+       ;; that the *source* of the move goes in the "target register"
+       ;; position because of the syntactic weirdness of the STR
+       ;; instruction.
+       (*str 'al (xs source) (xs target))]
+      [(temporary? source)
+       (*ldr 'al (xs target) (xs source))]
+      [else
+       (*mov 'al 0 (xs target) (xs source))])]
+    [`(load ,(preg target) ,(lit n) ,ofs)
+     ;; TODO: have some way of putting the location-of-the-location
+     ;; out-of-line. (The ARM manuals call this a "literal pool".)
+     ;; This will involve some threaded state or at the least a more
+     ;; complex return type for assemble-instr.
+     (list (*ldr 'al target (@reg 'pc '+ 0)) ;; eight bytes from the start of this instr
+	   (*b 'al 0) ;; pc <- pc + 0 + 8, i.e. skip next instruction (= 4 bytes)
+	   (imm32 (+ n ofs))
+	   (*ldr 'al target (@reg target '+ 0)))]
     [`(w+ ,target ,s1 ,s2)			(*add 'al 0 (xs target) (xs s1) (xs s2))]
     [`(w- ,target ,s1 ,s2)			(*sub 'al 0 (xs target) (xs s1) (xs s2))]
     [`(w* ,target ,s1 ,s2)			(*mul 'al 0 (xs target) (xs s1) (xs s2))]
