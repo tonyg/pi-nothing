@@ -42,6 +42,14 @@
 
 (define ((expand-instruction saved-locs) instr)
   (match instr
+    [`(wdiv ,target ,s1 ,s2)
+     (list `(move-word ,(preg 'r0) ,s1)
+	   `(move-word ,(preg 'r1) ,s2)
+	   `(wdiv ,(preg 'r0) ,(preg 'r0) ,(preg 'r1))
+	   `(use ,(preg 'r2))
+	   `(use ,(preg 'r3))
+	   `(use ,(preg 'lr))
+	   `(move-word ,target ,(preg 'r0)))]
     [`(ret ,target)
      (append (list `(move-word ,(preg 'r0) ,target))
 	     (map (lambda (loc name) `(move-word ,(preg name) ,loc)) saved-locs saved-regs)
@@ -178,6 +186,7 @@
     [`(w+ ,target ,s1 ,s2)			(*add 'al 0 (xs target) (xs s1) (xs s2))]
     [`(w- ,target ,s1 ,s2)			(*sub 'al 0 (xs target) (xs s1) (xs s2))]
     [`(w* ,target ,s1 ,s2)			(*mul 'al 0 (xs target) (xs s1) (xs s2))]
+    [`(wdiv ,(preg 'r0) ,(preg 'r0) ,(preg 'r1)) (*bl 'al #xbcdef0)] ;; TODO: __udivsi3 etc
     [`(compare ,cmpop ,target ,s1 ,s2)
      ;; Let wolog cmpop be <. Then we wish to compute s1 - s2 and have
      ;; the comparison be true if the result of subtraction is
