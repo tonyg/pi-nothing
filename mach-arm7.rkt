@@ -220,8 +220,8 @@
 		  ((>s) 'gt) ((>=s) 'ge)
 		  ((>u) 'hi)))
      (list (*cmp 'al (xs s1) (xs s2))
-	   (*mov 'al (xs target) 0)
-	   (*mov cc (xs target) 1))]
+	   (*mov 'al 0 (xs target) 0)
+	   (*mov cc 0 (xs target) 1))]
     [(label tag)
      (label-anchor tag)]
     [`(jmp-false ,(preg val) ,(label tag))
