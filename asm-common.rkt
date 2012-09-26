@@ -1,8 +1,7 @@
 #lang racket/base
 ;; Common definitions for machine-code emission.
 
-(provide (struct-out relocation)
-	 (struct-out label-reference)
+(provide (struct-out label-reference)
 	 (struct-out label-anchor)
 
 	 immediate?
@@ -28,13 +27,11 @@
 	 internal-link
 	 )
 
-(struct relocation (target) #:prefab)
 (struct label-reference (name is-8bit) #:prefab)
 (struct label-anchor (name) #:prefab)
 
 (define (immediate? x)
   (or (number? x)
-      (relocation? x)
       (label-reference? x)))
 
 (define (register=? x y)
@@ -97,7 +94,7 @@
 	   (modulo i 256)))))
 
 (define (imm32 i)
-  (if (or (relocation? i) (label-reference? i))
+  (if (label-reference? i)
       (list i 0 0 0 0)
       (imm32* i)))
 
@@ -114,7 +111,7 @@
 	     (imm32* i)))))
 
 (define (imm64 i)
-  (if (or (relocation? i) (label-reference? i))
+  (if (label-reference? i)
       (list i 0 0 0 0 0 0 0 0)
       (imm64* i)))
 
