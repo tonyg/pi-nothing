@@ -71,7 +71,8 @@
 	     (if (eq? calltype 'tail)
 		 (append
 		  (map (lambda (loc name) `(move-word ,(preg name) ,loc)) saved-locs saved-regs)
-		  (map (lambda (name) `(use ,(preg name))) saved-regs))
+		  ;;(map (lambda (name) `(use ,(preg name))) saved-regs)
+		  )
 		 (list))
 	     (list `(,op ,(preg 'eax) ,label ,(map mkarg (iota argcount)))
 		   `(cleanup-call ,calltype ,argcount))
@@ -181,17 +182,17 @@
     [(label tag)					(label-anchor tag)]
     [`(jmp-false ,(preg val) ,(label tag))
      (list (*op 'cmp 0 val)
-	   (*jmp-cc 'z (label-reference tag #f)))]
-    [`(jmp ,(label tag))				(*jmp (label-reference tag #f))]
+	   (*jmp-cc 'z (label-reference tag)))]
+    [`(jmp ,(label tag))				(*jmp (label-reference tag))]
     [`(ret ,(preg 'eax))				(list (*leave) (*ret))]
-    [`(call ,(preg 'eax) ,(label tag) ,_)		(*call (label-reference tag #f))]
+    [`(call ,(preg 'eax) ,(label tag) ,_)		(*call (label-reference tag))]
     [`(tailcall ,(preg 'eax) ,(label tag) ,args)
      (define delta (- (length args) inward-arg-count))
      (list (if (zero? delta)
 	       '()
 	       (*op 'sub (* delta word-size-bytes) 'ebp))
 	   (*leave)
-	   (*jmp (label-reference tag #f)))]
+	   (*jmp (label-reference tag)))]
     [_ (error 'assemble-instr "Cannot assemble ~v" i)]))
 
 (define ((assemble-instr* inward-arg-count temp-count) i)
@@ -213,7 +214,7 @@
 				     (map (assemble-instr* inward-arg-count temp-count) instrs))))
   (write `(pre-linking ,pre-linking)) (newline) (flush-output)
 
-  (define-values (linked relocs) (internal-link-32 pre-linking))
+  (define-values (linked relocs) (internal-link pre-linking))
   (write `(relocations ,relocs)) (newline) (flush-output)
   (list->bytes linked))
 

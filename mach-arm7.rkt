@@ -9,25 +9,26 @@
 (require "lir.rkt")
 (require "asm-arm7.rkt")
 (require (only-in "machine.rkt" machine-description))
+(require "unsigned.rkt")
 
 (provide machine-arm7)
 
 ;; r0-r11
-;; r12 - scratch reg
+;; r12 - scratch reg, never made available to the register allocator so free for use
 ;; r13 - stack
 ;; r14 - lr
 ;; r15 - pc
 
-(define available-regs (map preg (list 'r11 'r10 'r9 'r8
+(define available-regs (map preg (list 'lr
+				       'r11 'r10 'r9 'r8
 				       'r7 'r6 'r5 'r4
-				       'r3 'r2 'r1 'r0
-				       'lr)))
+				       'r3 'r2 'r1 'r0)))
 
 (define word-size-bytes 4)
 (define frame-alignment 16) ;; must be a power of two
 (define linkage-size 0)
 
-(define killed-regs '(r0 r1 r2 r3))
+(define killed-regs '(r0 r1 r2 r3 lr))
 (define saved-regs '(r4 r5 r6 r7 r8 r9 r10 r11 lr))
 
 (define (inward-argument-location i)
@@ -59,9 +60,7 @@
      (define argcount (length arg))
      (define calltype (if (eq? op 'tailcall) 'tail 'nontail))
      (define (mkarg i) (outward-argument-location calltype argcount i))
-     (append (if (eq? calltype 'tail)
-		 (list `(use ,(preg 'r12))) ;; need a scratch reg
-		 (list))
+     (append ;; Note no mention of r12 here, unlike the i386/x86_64 backends.
 	     (do ((i 0 (+ i 1))
 		  (arg arg (cdr arg))
 		  (acc '() (cons `(move-word ,(mkarg i) ,(car arg))
@@ -70,7 +69,8 @@
 	     (if (eq? calltype 'tail)
 		 (append
 		  (map (lambda (loc name) `(move-word ,(preg name) ,loc)) saved-locs saved-regs)
-		  (map (lambda (name) `(use ,(preg name))) saved-regs))
+		  ;;(map (lambda (name) `(use ,(preg name))) saved-regs)
+		  )
 		 (list))
 	     (list `(,op ,(preg 'r0) ,label ,(map mkarg (iota argcount))))
 	     (map (lambda (name) `(move-word ,(preg name) ,(junk))) killed-regs)
@@ -85,6 +85,22 @@
   (append (map (lambda (loc name) `(move-word ,loc ,(preg name))) saved-locs saved-regs)
 	  (append-map expander init-arg-instrs)
 	  (append-map expander instrs)))
+
+;; TODO: lift this away from being machine specific. Generally, do
+;; constant-folding.
+(define (evaluate-cmpop cmpop n m)
+  (define opfn (case cmpop
+		 ((<=s) <=)
+		 ((<s) <)
+		 ((<=u) <=u32)
+		 ((>u) >u32)
+		 ((=) =)
+		 ((<>) (lambda (a b) (not (= a b))))
+		 ((>s) >)
+		 ((>=s) >=)
+		 ((>u) >u32)
+		 ((>=u) >=u32)))
+  (bool->bit (opfn n m)))
 
 (define (expand-temporary-loads-and-stores instrs)
   (define (shuffle-for-two-args make-instr target s1 s2)
@@ -113,6 +129,8 @@
 		(define r (fresh-reg))
 		(list `(move-word ,r ,s1)
 		      `(,op ,target ,r ,s2))]
+	       [`(compare ,cmpop ,target ,(? lit? n) ,(? lit? m))
+		(list `(move-word ,target ,(lit (evaluate-cmpop cmpop (lit-val n) (lit-val m)))))]
 	       [`(compare ,cmpop ,target ,(? memory-location? n) ,(? memory-location? m))
 		(define r (fresh-reg))
 		(list `(move-word ,r ,m)
@@ -182,31 +200,36 @@
       ))
   (match i
     [`(move-word ,target ,source)
+     (define real-target (xs target))
+     (define real-source (xs source))
      (cond
-      [(temporary? target)
-       ;; we know by the action of expand-temporary-loads-and-stores
-       ;; that we'll not see both a temporary source and target. Note
-       ;; that the *source* of the move goes in the "target register"
-       ;; position because of the syntactic weirdness of the STR
-       ;; instruction.
-       (*str 'al (xs source) (xs target))]
-      [(temporary? source)
-       (*ldr 'al (xs target) (xs source))]
+      [(and (@reg? real-target) (@reg? real-source))
+       ;; We know by the action of expand-temporary-loads-and-stores
+       ;; that we'll not see both a temporary source and target, but
+       ;; just to be sure...
+       (error 'assemble-instr "Cannot *mov from memory to memory on ARM ~v" i)]
+      [(@reg? real-target)
+       ;; Note that the *source* of the move goes in the "target
+       ;; register" position because of the syntactic weirdness of the
+       ;; STR instruction.
+       (*str 'al real-source real-target)]
+      [(@reg? real-source)
+       (*ldr 'al real-target real-source)]
       [else
-       (*mov 'al 0 (xs target) (xs source))])]
+       (*mov 'al 0 real-target real-source)])]
     [`(load ,(preg target) ,(lit n) ,ofs)
      ;; TODO: have some way of putting the location-of-the-location
      ;; out-of-line. (The ARM manuals call this a "literal pool".)
      ;; This will involve some threaded state or at the least a more
      ;; complex return type for assemble-instr.
      (list (*ldr 'al target (@reg 'pc '+ 0)) ;; eight bytes from the start of this instr
-	   (*b 'al 0) ;; pc <- pc + 0 + 8, i.e. skip next instruction (= 4 bytes)
+	   (*b 'al 8) ;; branch to instruction 8 bytes ahead of this one
 	   (imm32 (+ n ofs))
 	   (*ldr 'al target (@reg target '+ 0)))]
     [`(w+ ,target ,s1 ,s2)			(*add 'al 0 (xs target) (xs s1) (xs s2))]
     [`(w- ,target ,s1 ,s2)			(*sub 'al 0 (xs target) (xs s1) (xs s2))]
     [`(w* ,target ,s1 ,s2)			(*mul 'al 0 (xs target) (xs s1) (xs s2))]
-    [`(wdiv ,(preg 'r0) ,(preg 'r0) ,(preg 'r1)) (*bl 'al #xbcdef0)] ;; TODO: __udivsi3 etc
+    [`(wdiv ,(preg 'r0) ,(preg 'r0) ,(preg 'r1)) (*bl 'al (label-reference '__udivsi3))]
     [`(compare ,cmpop ,target ,s1 ,s2)
      ;; Let wolog cmpop be <. Then we wish to compute s1 - s2 and have
      ;; the comparison be true if the result of subtraction is
@@ -226,23 +249,24 @@
      (label-anchor tag)]
     [`(jmp-false ,(preg val) ,(label tag))
      (list (*cmp 'al val 0)
-	   (*b 'eq (label-reference tag #f)))]
-    [`(jmp ,(label tag))			(*b 'al (label-reference tag #f))]
+	   (*b 'eq (label-reference tag)))]
+    [`(jmp ,(label tag))			(*b 'al (label-reference tag))]
     [`(ret ,(preg 'r0))				(*mov 'al 0 'pc 'lr)]
     [`(call ,(preg 'r0) ,(label tag) ,args)
      (define outward-arg-count (length args))
      (define delta (round-up-to-nearest frame-alignment
 					(* (+ outward-arg-count temp-count)
 					   word-size-bytes)))
-     (list (*sub 'al 0 'sp delta)
-	   (*bl 'al (label-reference tag #f))
-	   (*add 'al 0 'sp delta))]
+     (list (if (zero? delta) '() (*sub 'al 0 'sp 'sp delta))
+	   (*bl 'al (label-reference tag))
+	   (if (zero? delta) '() (*add 'al 0 'sp 'sp delta)))]
     [`(tailcall ,(preg 'r0) ,(label tag) ,args)
      (define delta (- (length args) inward-arg-count))
      (list (if (zero? delta)
 	       '()
-	       (*sub 'al 0 'sp (* delta word-size-bytes)))
-	   (*b 'al (label-reference tag #f)))]
+	       ;; TODO: FATAL: we can't use this calling convention
+	       (*sub 'al 0 'sp 'sp (* delta word-size-bytes)))
+	   (*b 'al (label-reference tag)))]
     [_ (error 'assemble-instr "Cannot assemble ~v" i)]))
 
 (define ((assemble-instr* inward-arg-count temp-count) i)
@@ -255,7 +279,7 @@
 (define (assemble inward-arg-count temp-count instrs)
   (define pre-linking (flatten (map (assemble-instr* inward-arg-count temp-count) instrs)))
   (write `(pre-linking ,pre-linking)) (newline) (flush-output)
-  (define-values (linked relocs) (internal-link-32 pre-linking))
+  (define-values (linked relocs) (internal-link pre-linking))
   (write `(relocations ,relocs)) (newline) (flush-output)
   (list->bytes linked))
 

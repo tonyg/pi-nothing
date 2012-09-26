@@ -151,7 +151,7 @@
       (if rotated-immediate?
 	  (let ((r (best-rotation d)))
 	    (bitfield 4 (car r) 8 (cdr r)))
-	  (bitfield 12 d))
+	  (bitfield -12 d))
       (bitfield 5 (shift-immediate (@delta-shift d))
 		2 (shift-type-code (@delta-shift d))
 		1 0
@@ -215,19 +215,32 @@
 		   4 9
 		   4 (reg-num rn))))
 
-(define (b-or-bl cc link? imm24)
+;; NB re +8: branch instruction assembly treats PC as being *the same
+;; as the branch instruction's address*, i.e. the assembler
+;; automatically compensates for the +8.
+
+;; See note re +8 above.
+(define (b-or-bl cc link? loc)
+  (if (label-reference? loc)
+      (label-linker (label-reference-name loc)
+		    4
+		    (lambda (delta i)
+		      (b-or-bl* cc link? delta)))
+      (b-or-bl* cc link? loc)))
+
+;; See note re +8 above.
+(define (b-or-bl* cc link? imm24)
   (when (not (zero? (bitwise-and imm24 3)))
     (error '*b "Immediate PC-relative branch target offset must be a multiple of 4: ~v" imm24))
   (imm32 (bitfield 4 (condition-code-num cc)
 		   3 5
 		   1 (bool->bit link?)
-		   -24 (shr imm24 2))))
+		   -24 (shr (- imm24 8) 2)))) ;; -8 because it's (pc+8)-relative
 
-(define (*b cc imm24) (b-or-bl cc #f imm24))
-(define (*bl cc imm24) (b-or-bl cc #t imm24))
-
-(define (internal-link-32 instrs)
-  (internal-link 4 imm32* instrs))
+;; See note re +8 above.
+(define (*b cc loc) (b-or-bl cc #f loc))
+;; See note re +8 above.
+(define (*bl cc loc) (b-or-bl cc #t loc))
 
 ;;---------------------------------------------------------------------------
 #|
@@ -284,7 +297,7 @@
 	  (*** 'gt 'r1 (@reg 'r2 '- (@shifted 'r3 (@ror 1))))
 	  (*** 'gt 'r1 (@reg 'r2 '- (@shifted 'r3 (@rrx))))))
   (define-values (instrs relocs)
-    (internal-link-32
+    (internal-link
      (flatten
       (list
        ;; (loads/stores *str)

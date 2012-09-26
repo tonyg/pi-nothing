@@ -24,8 +24,6 @@
 
 	 *leave
 	 *ret
-
-	 internal-link-64
 	 )
 
 (define regs '((rax 0)
@@ -165,20 +163,14 @@
 (define (*call loc)
   (*call-or-jmp-like #xE8 2 loc))
 
-(define (is-short-jump? loc)
-  (and (label-reference? loc)
-       (label-reference-is-8bit loc)))
-
 (define (*jmp loc)
-  (if (is-short-jump? loc)
-      (list #xEB loc 0)
-      (*call-or-jmp-like #xE9 4 loc)))
+  ;; Short, 8-bit form: (list #xEB loc)
+  (*call-or-jmp-like #xE9 4 loc))
 
 (define (*jmp-cc code loc)
   (let ((tttn (condition-code-num code)))
-    (if (is-short-jump? loc)
-	(list (bitfield 4 7 4 tttn) loc 0)
-	(list #x0F (bitfield 4 8 4 tttn) (imm32 loc)))))
+    ;; Short, 8-bit form: (list (bitfield 4 7 4 tttn) loc)
+    (list #x0F (bitfield 4 8 4 tttn) (imm32 loc))))
 
 (define (*push reg)
   (mod-r-m* 1 2 (reg-num reg)))
@@ -188,9 +180,6 @@
 
 (define (*leave) #xC9)
 (define (*ret) #xC3)
-
-(define (internal-link-64 instrs)
-  (internal-link 4 imm32* instrs))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 

@@ -1,7 +1,10 @@
 #lang racket/base
 ;; Common definitions for machine-code emission.
 
+(require (only-in racket/list flatten make-list))
+
 (provide (struct-out label-reference)
+	 (struct-out label-linker)
 	 (struct-out label-anchor)
 
 	 immediate?
@@ -12,10 +15,11 @@
 
 	 onebyte-immediate?
 	 fourbyte-immediate?
-	 imm8
 	 shr
 	 ror32
 	 imm-endianness
+	 imm8*
+	 imm8
 	 imm32*
 	 imm32
 	 imm32-if
@@ -27,7 +31,8 @@
 	 internal-link
 	 )
 
-(struct label-reference (name is-8bit) #:prefab)
+(struct label-reference (name) #:prefab)
+(struct label-linker (name width resolver) #:prefab)
 (struct label-anchor (name) #:prefab)
 
 (define (immediate? x)
@@ -66,9 +71,6 @@
 (define (fourbyte-immediate? n)
   (and (number? n) (< n #x80000000) (>= n #x-80000000)))
 
-(define (imm8 i)
-  (modulo i 256))
-
 (define (shr v amount)
   (arithmetic-shift v (- amount)))
 
@@ -79,6 +81,14 @@
 			    (arithmetic-shift (bitwise-bit-field v 0 amount) (- 32 amount)))))
 
 (define imm-endianness (make-parameter 'little))
+
+(define (imm8* i)
+  (modulo i 256))
+
+(define (imm8 i)
+  (if (label-reference? i)
+      (label-linker (label-reference-name i) 1 (lambda (delta i) (imm8* (- delta 1))))
+      (imm8* i)))
 
 (define (imm32* i)
   (case (imm-endianness)
@@ -95,7 +105,7 @@
 
 (define (imm32 i)
   (if (label-reference? i)
-      (list i 0 0 0 0)
+      (label-linker (label-reference-name i) 4 (lambda (delta i) (imm32* (- delta 4))))
       (imm32* i)))
 
 (define (imm32-if test-result i)
@@ -112,7 +122,7 @@
 
 (define (imm64 i)
   (if (label-reference? i)
-      (list i 0 0 0 0 0 0 0 0)
+      (label-linker (label-reference-name i) 8 (lambda (delta i) (imm64* (- delta 8))))
       (imm64* i)))
 
 (define (imm64-if test-result i)
@@ -122,16 +132,22 @@
   (let ((temp (+ val n -1)))
     (- temp (remainder temp n))))
 
-(define (internal-link word-size-bytes immNN* instrs)
+(define (internal-link instrs)
   (define positions
     (let loop ((i 0)
 	       (instrs instrs)
 	       (acc '()))
       (cond
        ((null? instrs) (reverse acc))
-       ((label-anchor? (car instrs)) (loop i (cdr instrs) (cons (cons (car instrs) i) acc)))
-       ((label-reference? (car instrs)) (loop i (cdr instrs) acc))
-       (else (loop (+ i 1) (cdr instrs) acc)))))
+       ((label-anchor? (car instrs)) (loop i
+					   (cdr instrs)
+					   (cons (cons (car instrs) i) acc)))
+       ((label-linker? (car instrs)) (loop (+ i (label-linker-width (car instrs)))
+					   (cdr instrs)
+					   acc))
+       (else (loop (+ i 1)
+		   (cdr instrs)
+		   acc)))))
   (let loop ((i 0)
 	     (instrs instrs)
 	     (acc '())
@@ -139,25 +155,21 @@
     (cond
      ((null? instrs) (values (reverse acc) (reverse relocs)))
      ((label-anchor? (car instrs)) (loop i (cdr instrs) acc relocs))
-     ((label-reference? (car instrs))
+     ((label-linker? (car instrs))
       (define l (car instrs))
-      (cond
-       ((assoc (label-anchor (label-reference-name l)) positions)
-	=> (lambda (cell)
-	     (define anchor-pos (cdr cell))
-	     (define delta (- anchor-pos i))
-	     (if (label-reference-is-8bit (car instrs))
-		 (loop (+ i 1)
-		       (cdr (cdr instrs))
-		       (cons (imm8 (- delta 1)) acc)
-		       relocs)
-		 (loop (+ i word-size-bytes)
-		       (list-tail (cdr instrs) word-size-bytes)
-		       (append (reverse (immNN* (- delta word-size-bytes))) acc)
-		       relocs))))
-       (else
-	(loop i
-	      (cdr instrs)
-	      acc
-	      (cons (cons i (car instrs)) relocs)))))
+      (define cell (assoc (label-anchor (label-linker-name l)) positions))
+      (define anchor-pos (if cell (cdr cell) i))
+      (define delta (- anchor-pos i))
+      (define code (flatten ((label-linker-resolver l) delta i)))
+      (when (not (= (length code) (label-linker-width l)))
+	(error 'internal-link
+	       "Generated code ~v does not match promised width ~v"
+	       code
+	       (label-linker-width l)))
+      (loop (+ i (label-linker-width l))
+	    (cdr instrs)
+	    (append (reverse code) acc)
+	    (if cell
+		relocs
+		(cons (cons i (car instrs)) relocs))))
      (else (loop (+ i 1) (cdr instrs) (cons (car instrs) acc) relocs)))))
