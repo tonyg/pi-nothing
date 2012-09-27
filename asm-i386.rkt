@@ -15,7 +15,6 @@
 	 *mov
 	 *cmov
 	 *setcc-eax
-	 *call-or-jmp-like
 	 *call
 	 *jmp
 	 *jmp-cc

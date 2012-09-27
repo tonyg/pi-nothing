@@ -15,7 +15,6 @@
 	 *mov
 	 *cmov
 	 *setcc-rax
-	 *call-or-jmp-like
 	 *call
 	 *jmp
 	 *jmp-cc
