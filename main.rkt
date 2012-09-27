@@ -135,6 +135,13 @@
        (x v20 v21 v22 v23 v24 v25 v26 v27 v28 v29))
     `((x ,(label 'X))))
 
+(te '(argc argv)
+    '(begin
+       (puts str)
+       #x12345678)
+    `((puts ,(label '_puts))
+      (str ,(label 'str_data_pointer))))
+
 (check-equal? (re '(a b) '(+ a b) '() '(123 234)) 357)
 (check-equal? (re '(a b) '(if (>s a b) 111 222) '() '(123 234)) 222)
 (check-equal? (re '(a b) '(if (>s a b) 111 222) '() '(234 123)) 111)

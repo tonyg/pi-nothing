@@ -179,6 +179,7 @@
   (define (xs v)
     (match v
       [(lit n) n]
+      [(label tag) (label-reference tag)]
       [(preg r) r]
       [(temporary n) (@reg 'sp '+ (* (+ n 1) word-size-bytes))]
       [(inward-arg n)
@@ -215,6 +216,13 @@
        (*str 'al real-source real-target)]
       [(@reg? real-source)
        (*ldr 'al real-target real-source)]
+      [(or (label-reference? real-source)
+	   (and (number? real-source)
+		(not (best-rotation-exists? real-source))))
+       ;; Compare to the "load" instruction code slightly below. This is like x86 LEA.
+       (list (*ldr 'al real-target (@reg 'pc '+ 0))
+	     (*b 'al 8)
+	     (imm32 real-source))]
       [else
        (*mov 'al 0 real-target real-source)])]
     [`(load ,(preg target) ,(lit n) ,ofs)

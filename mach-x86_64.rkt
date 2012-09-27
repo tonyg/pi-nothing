@@ -152,6 +152,7 @@
   (define (xs v)
     (match v
       [(lit n) n]
+      [(label tag) (label-reference tag)]
       [(preg r) r]
       [(temporary n) (@reg 'rbp (- (* word-size-bytes (+ n 1))))]
       [(inward-arg n) (@reg 'rbp (* word-size-bytes (+ n 2)))]

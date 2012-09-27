@@ -138,12 +138,21 @@
    (else s)))
 
 ;; Number -> (Option (Pairof Number Number))
-(define (best-rotation imm0)
+(define (best-rotation* imm0)
   (let loop ((places 0) (imm imm0))
     (cond
      ((= (bitwise-and imm #xff) imm) (cons places imm))
-     ((= places 16) (error 'best-rotation "Cannot find suitable rotation for ~v" imm0))
+     ((= places 16) #f)
      (else (loop (+ places 1) (ror32 imm -2))))))
+
+;; Number -> Boolean
+(define (best-rotation-exists? imm0)
+  (best-rotation* imm0))
+
+;; Number -> (Pairof Number Number)
+(define (best-rotation imm0)
+  (or (best-rotation* imm0)
+      (error 'best-rotation "Cannot find suitable rotation for ~v" imm0)))
 
 ;; Boolean Delta -> Number
 (define (delta-field rotated-immediate? d)
