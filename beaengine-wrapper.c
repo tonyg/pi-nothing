@@ -9,7 +9,7 @@ void disassemble_block(void *start, int block_length, int is_64bit, int show_bin
   int finished = 0;
   intptr_t end;
 
-  memset(&d, sizeof(d), 0); /* important! */
+  memset(&d, 0, sizeof(d)); /* important! */
   d.Options = Tabulation | ATSyntax;
   d.EIP = (intptr_t) start;
   end = d.EIP + block_length;
