@@ -307,7 +307,7 @@
 	  (*** 'gt 'r1 (@reg 'r2 '- (@shifted 'r3 (@ror 1))))
 	  (*** 'gt 'r1 (@reg 'r2 '- (@shifted 'r3 (@rrx))))))
   (define-values (instrs relocs)
-    (internal-link
+    (link
      (flatten
       (list
        ;; (loads/stores *str)

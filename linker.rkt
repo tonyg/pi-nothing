@@ -7,14 +7,14 @@
 	 (struct-out label-linker)
 	 (struct-out label-anchor)
 
-	 internal-link
+	 link
 	 )
 
 (struct label-reference (name) #:prefab)
 (struct label-linker (name width resolver) #:prefab)
 (struct label-anchor (name) #:prefab)
 
-(define (internal-link raw-bs base-address)
+(define (link raw-bs base-address)
   (define bs (flatten raw-bs))
   (define positions
     (let loop ((i base-address)
@@ -50,7 +50,7 @@
       ;; TODO: Iterate to fixpoint in cases where the linker needs to
       ;; change its mind about the length of the generated binary.
       (when (not (= (length code) (label-linker-width l)))
-	(error 'internal-link
+	(error 'link
 	       "Generated code ~v does not match promised width ~v"
 	       code
 	       (label-linker-width l)))

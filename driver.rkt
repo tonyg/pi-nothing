@@ -11,7 +11,8 @@
 (require "peephole.rkt")
 (require "linker.rkt")
 
-(provide compile-procedure)
+(provide compile-procedure
+	 compile-and-link-procedure)
 
 (define (compile-procedure md arg-names body-exp env)
   (define argcount (length arg-names))
@@ -43,9 +44,13 @@
     (assemble md argcount temp-count peepholed-instrs))
   (pretty-print `(pre-linking (machine-code ,machine-code)
 			      (machine-data ,machine-data)))
-  (define-values (linked relocs) (internal-link (list machine-code
-						      machine-data
-						      body-data)
-						#x80000000))
+  (values machine-code
+	  (list machine-data
+		body-data)))
+
+(define (compile-and-link-procedure md arg-names body-exp env base-address)
+  (define-values (code data)
+    (compile-procedure md arg-names body-exp env))
+  (define-values (linked relocs) (link (list code data) base-address))
   (write `(relocations ,relocs)) (newline) (flush-output)
   (list->bytes linked))
