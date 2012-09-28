@@ -15,7 +15,7 @@
 
 ;; Bytes Exact -> Void
 ;; Prints a pretty hex/ASCII dump of bs on (current-output-port).
-(define (dump-bytes! bs [requested-count (bytes-length bs)])
+(define (dump-bytes! bs [requested-count (bytes-length bs)] #:base [baseaddr 0])
   (define count (min requested-count (bytes-length bs)))
   (define clipped (subbytes bs 0 count))
   (define (dump-hex i)
@@ -35,7 +35,7 @@
 	((= i high))
       (f i)))
   (define (dump-line i)
-    (display (hex 8 i))
+    (display (hex 8 (+ i baseaddr)))
     (display #\space)
     (for-each-between dump-hex i (+ i 8))
     (display ": ")

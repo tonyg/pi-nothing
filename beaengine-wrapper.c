@@ -4,7 +4,12 @@
 
 #include <beaengine/BeaEngine.h>
 
-void disassemble_block(void *start, int block_length, int is_64bit, int show_binary) {
+void disassemble_block(void *start,
+		       int block_length,
+		       unsigned int base,
+		       int is_64bit,
+		       int show_binary)
+{
   DISASM d;
   int finished = 0;
   intptr_t end;
@@ -23,7 +28,7 @@ void disassemble_block(void *start, int block_length, int is_64bit, int show_bin
     valid = (len != UNKNOWN_OPCODE) && (len != OUT_OF_BLOCK);
 
     printf("%08lX %-50s",
-	   (unsigned long) d.EIP,
+	   (unsigned long) (d.EIP - (intptr_t) start) + base,
 	   valid ? d.CompleteInstr : "????????");
 
     if (!valid) {

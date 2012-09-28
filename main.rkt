@@ -29,8 +29,10 @@
   (newline)
   (pretty-print exp)
   (define machine-code (compile-and-link-procedure te-machine args exp env #x80000000))
-  (dump-bytes! machine-code) (flush-output)
-  (disassemble-bytes! machine-code #:arch (machine-description-architecture te-machine))
+  (dump-bytes! machine-code #:base #x80000000) (newline) (flush-output)
+  (disassemble-bytes! machine-code
+		      #:arch (machine-description-architecture te-machine)
+		      #:base #x80000000)
   (display "===========================================================================")
   (newline)
   (newline))
@@ -47,8 +49,8 @@
   (define machine-code (compile-and-link-procedure (current-machine-description) args exp env
 						   ;; TODO: better way of determining base-address
 						   #x80000000))
-  (dump-bytes! machine-code) (flush-output)
-  (disassemble-bytes! machine-code)
+  (dump-bytes! machine-code #:base #x80000000) (newline) (flush-output)
+  (disassemble-bytes! machine-code #:base #x80000000)
   (define p (reflect-machine-code machine-code
 				  (map (lambda (arg) inttype) args)
 				  inttype))

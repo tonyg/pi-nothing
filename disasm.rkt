@@ -13,18 +13,20 @@
 
 (define %disassemble-block
   (if lib
-      (get-ffi-obj "disassemble_block" lib (_fun _gcpointer _int _int _int -> _void))
+      (get-ffi-obj "disassemble_block" lib (_fun _gcpointer _int _uint _int _int -> _void))
       (lambda (bs len arch show-binary)
 	(display "beaengine not available")
 	(newline))))
 
 (define (disassemble-raw! x len
 			  #:arch [arch (current-cpu-architecture)]
+			  #:base [base 0]
 			  #:show-binary [show-binary #t])
   (if (eq? arch 'arm7)
-      (disassemble-arm7 x len)
+      (disassemble-arm7 x len base)
       (%disassemble-block x
 			  len
+			  base
 			  (case arch
 			    [(i386) 0]
 			    [(x86_64) 1]
@@ -33,10 +35,12 @@
 
 (define (disassemble-bytes! bs
 			    #:arch [arch (current-cpu-architecture)]
+			    #:base [base 0]
 			    #:show-binary [show-binary #t])
-  (disassemble-raw! bs (bytes-length bs) #:arch arch #:show-binary show-binary))
+  (disassemble-raw! bs (bytes-length bs) #:arch arch #:base base #:show-binary show-binary))
 
-(define (disassemble-arm7 x len)
+(define (disassemble-arm7 x len base)
   (with-input-from-bytes (subbytes x 0 len)
     (lambda ()
-      (system "./disarm/disarm-0.11 - 0"))))
+      (system (string-append "./disarm/disarm-0.11 - "
+			     (number->string base))))))
