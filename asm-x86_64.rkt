@@ -58,7 +58,7 @@
 	(if (and (register=? target 'rax) (not (onebyte-immediate? source)))
 	    (list (rex reg-num 1 0 0 0)
 		  (bitfield 2 0 3 opcode 2 2 1 1)
-		  (imm32 source))
+		  (imm32* source))
 	    (list (mod-r-m-64 (bitfield 2 2 3 0 1 0 1 s-bit 1 1) opcode target)
 		  (imm32-if (not (onebyte-immediate? source)) source)))))
      ((memory? source)
@@ -118,10 +118,10 @@
        ((and (@imm? source) (register=? target 'eax))
 	;; special alternate encoding
 	(if (fourbyte-immediate? (@imm-address source))
-	    (list (bitfield 7 #b1010000 1 w-bit) (imm32 (@imm-address source)))
+	    (list (bitfield 7 #b1010000 1 w-bit) (imm32* (@imm-address source)))
 	    (list (rex reg-num 1 0 0 0)
 		  (bitfield 7 #b1010000 1 w-bit)
-		  (imm64 (@imm-address source)))))
+		  (imm64* (@imm-address source)))))
        ((not (register? target))
 	(error "*mov: Cannot have memory source and non-register target" (list source target)))
        (else
@@ -131,10 +131,10 @@
        ((and (@imm? target) (register=? source 'eax))
 	;; special alternate encoding
 	(if (fourbyte-immediate? (@imm-address target))
-	    (list (bitfield 7 #b1010001 1 w-bit) (imm32 (@imm-address target)))
+	    (list (bitfield 7 #b1010001 1 w-bit) (imm32* (@imm-address target)))
 	    (list (rex reg-num 1 0 0 0)
 		  (bitfield 7 #b1010001 1 w-bit)
-		  (imm64 (@imm-address target)))))
+		  (imm64* (@imm-address target)))))
        ((or (memory? target) (register? target))
 	(mod-r-m-64 (bitfield 2 2 3 1 2 0 1 w-bit) source target))
        (else
@@ -153,7 +153,7 @@
 (define (*call-or-jmp-like immediate-opcode indirect-mod loc)
   (cond
    ((immediate? loc)
-    (list immediate-opcode (imm32 loc)))
+    (list immediate-opcode (imm32-rel loc)))
    ((or (register? loc) (memory? loc))
     (mod-r-m-64 #xFF indirect-mod loc))
    (else
@@ -169,7 +169,7 @@
 (define (*jmp-cc code loc)
   (let ((tttn (condition-code-num code)))
     ;; Short, 8-bit form: (list (bitfield 4 7 4 tttn) loc)
-    (list #x0F (bitfield 4 8 4 tttn) (imm32 loc))))
+    (list #x0F (bitfield 4 8 4 tttn) (imm32-rel loc))))
 
 (define (*push reg)
   (mod-r-m* 1 2 (reg-num reg)))

@@ -8,6 +8,7 @@
 (require racket/list)
 
 (require "lir.rkt")
+(require "linker.rkt")
 
 (provide frontend)
 
@@ -17,8 +18,11 @@
 (struct layout (fields) #:prefab)
 (struct layout-field (name type) #:prefab)
 
-(struct snippet (instrs val) #:prefab)
-(define (snip val . instrs) (snippet instrs val))
+;; (snippet (Listof Instr) (Constreeof MachineCode) Val)
+(struct snippet (instrs data val) #:prefab)
+(define (snip val . instrs) (snippet instrs '() val))
+
+(struct binding (name val instrs data mutable?) #:prefab)
 
 (define-syntax seq
   (syntax-rules ()
@@ -26,10 +30,12 @@
      (let () final ...)]
     [(seq ([valname v] rest ...) final ...)
      (match v
-       [(snippet instrs1 valname)
+       [(snippet instrs1 data1 valname)
 	(match (seq (rest ...) final ...)
-	  [(snippet instrs2 finalval)
-	   (snippet (append instrs1 instrs2) finalval)])])]))
+	  [(snippet instrs2 data2 finalval)
+	   (snippet (append instrs1 instrs2)
+		    (cons data1 data2)
+		    finalval)])])]))
 
 (define (real-dest? dest)
   (not (void? dest)))
@@ -47,14 +53,15 @@
      (translate-exp tail? dest rand env)]
     [_ ;; otherwise more than one
      (foldl (lambda (right-rand left-snippet)
-	      (match-define (snippet left-instrs left-val) left-snippet)
-	      (match-define (snippet right-instrs right-val)
+	      (match-define (snippet left-instrs left-data left-val) left-snippet)
+	      (match-define (snippet right-instrs right-data right-val)
 		(translate-exp #f (fresh-reg) right-rand env))
 	      (snippet (append left-instrs
 			       right-instrs
 			       (if (real-dest? dest)
 				   (list `(,instr-op ,dest ,left-val ,right-val))
 				   (list)))
+		       (cons left-data right-data)
 		       dest))
 	    (translate-exp #f (fresh-reg) (car rands) env)
 	    (cdr rands))]))
@@ -64,13 +71,16 @@
 	[bv (translate-exp #f (fresh-reg) b env)])
        (snip dest `(compare ,rator ,dest ,av ,bv))))
 
+(define (lookup varname env)
+  (findf (lambda (b) (equal? varname (binding-name b))) env))
+
 (define (translate-exp tail? dest exp env)
   (match exp
     [(? number? val)
      (store-result dest (lit val))]
 
     [(? symbol? varname)
-     (store-result dest (cond [(assq varname env) => cadr]
+     (store-result dest (cond [(lookup varname env) => binding-val]
 			      [else (error 'translate "Unbound variable ~a" varname)]))]
 
     [`(let ,bindings ,body ...)
@@ -80,14 +90,17 @@
 			    [`(mutable ,name ,init-exp) (values #t name init-exp)]
 			    [`(,name ,init-exp) (values #f name init-exp)]))
 			(define r (fresh-reg))
-			(match-define (snippet instrs v) (translate-exp #f r init-exp env))
+			(match-define (snippet instrs data v) (translate-exp #f r init-exp env))
 			(if (and (lit? v) (not mutable?))
-			    (list name v instrs mutable?)
-			    (list name r instrs mutable?)))
+			    (binding name v instrs data mutable?)
+			    (binding name r instrs data mutable?)))
 		      bindings))
-     (match-define (snippet instrs val) (translate-exp tail? dest `(begin ,@body) (append rib env)))
-     (snippet (append (append* (map caddr rib))
+     (match-define (snippet instrs data val)
+       (translate-exp tail? dest `(begin ,@body) (append rib env)))
+     (snippet (append (append* (map binding-instrs rib))
 		      instrs)
+	      (cons (map binding-data rib)
+		    data)
 	      val)]
 
     [`(begin)
@@ -153,14 +166,15 @@
      (define Lfalse (fresh-label))
      (define Ldone (fresh-label))
      (seq ([testv (translate-exp #f (fresh-reg) test env)])
-	  (match-define (snippet ti tv) (translate-exp tail? dest texp env))
-	  (match-define (snippet fi fv) (translate-exp tail? dest fexp env))
+	  (match-define (snippet ti td tv) (translate-exp tail? dest texp env))
+	  (match-define (snippet fi fd fv) (translate-exp tail? dest fexp env))
 	  (snippet (append (list `(jmp-false ,testv ,Lfalse))
 			   ti
 			   (list (if tail? `(ret ,dest) `(jmp ,Ldone))
 				 Lfalse)
 			   fi
 			   (if tail? (list) (list Ldone)))
+		   (cons td fd)
 		   dest))]
 
     [`(cond)
@@ -172,25 +186,32 @@
     [`(while ,test ,body ...)
      (define Ltop (fresh-label))
      (define Ldone (fresh-label))
-     (match-define (snippet testi testv) (translate-exp #f (fresh-reg) test env))
-     (match-define (snippet bodyi bodyv) (translate-exp #f (fresh-reg) `(begin ,@body) env))
+     (match-define (snippet testi testd testv) (translate-exp #f (fresh-reg) test env))
+     (match-define (snippet bodyi bodyd bodyv) (translate-exp #f (fresh-reg) `(begin ,@body) env))
      (snippet (append (list Ltop)
 		      testi
 		      (list `(jmp-false ,testv ,Ldone))
 		      bodyi
 		      (list `(jmp ,Ltop)
 			    Ldone))
+	      (cons testd bodyd)
 	      (lit 0))]
 
     [`(set! ,varname ,val)
      (seq ([valv (translate-exp #f (fresh-reg) val env)])
-	  (match (assq varname env)
-	    [`(,_ ,reg ,_ #t)
+	  (match (lookup varname env)
+	    [(binding _ reg _ _ #t)
 	     (snip reg `(move-word ,reg ,valv))]
 	    [#f
 	     (error 'translate "Unbound variable ~a in set!" varname)]
 	    [_
 	     (error 'translate "Immutable variable ~a in set!" varname)]))]
+
+    [`(data ,ds ...)
+     (define L (fresh-label))
+     (snippet (list `(move-word ,dest ,L))
+	      (list (label-anchor (label-tag L)) ds)
+	      dest)]
 
     ;;---------------------------------------------------------------------------
 
@@ -206,22 +227,27 @@
 	    ;; Tail call
 	    (snippet (append (append* (map snippet-instrs rand-snips))
 			     (list `(tailcall ,dest ,rator-v ,(map snippet-val rand-snips))))
+		     (map snippet-data rand-snips)
 		     dest)]
 	   [(real-dest? dest)
 	    ;; Nontail call and we care about the result
 	    (snippet (append (append* (map snippet-instrs rand-snips))
 			     (list `(call ,dest ,rator-v ,(map snippet-val rand-snips))))
+		     (map snippet-data rand-snips)
 		     dest)]
 	   [else
 	    ;; Nontail call and we don't care about the result
 	    (snippet (append (append* (map snippet-instrs rand-snips))
 			     (list `(call ,(fresh-reg) ,rator-v ,(map snippet-val rand-snips))))
+		     (map snippet-data rand-snips)
 		     (lit 0))]))]
 
     ))
 
-(define (frontend exp env)
+(define (frontend exp raw-env)
   (define target-reg (fresh-reg))
-  (match-define (snippet body-instrs val) (translate-exp #t target-reg exp env))
-  (append body-instrs
-	  (list `(ret ,val))))
+  (define env (map (lambda (e) (binding (car e) (cadr e) '() '() #f)) raw-env))
+  (match-define (snippet body-instrs body-data val) (translate-exp #t target-reg exp env))
+  (values (append body-instrs
+		  (list `(ret ,val)))
+	  body-data))

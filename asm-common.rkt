@@ -2,12 +2,9 @@
 ;; Common definitions for machine-code emission.
 
 (require (only-in racket/list flatten make-list))
+(require "linker.rkt")
 
-(provide (struct-out label-reference)
-	 (struct-out label-linker)
-	 (struct-out label-anchor)
-
-	 immediate?
+(provide immediate?
 	 register=?
 	 register?
 
@@ -21,19 +18,16 @@
 	 imm8*
 	 imm8
 	 imm32*
-	 imm32
+	 imm32-rel
+	 imm32-abs
 	 imm32-if
 	 imm64*
-	 imm64
+	 imm64-rel
+	 imm64-abs
 	 imm64-if
 
 	 round-up-to-nearest
-	 internal-link
 	 )
-
-(struct label-reference (name) #:prefab)
-(struct label-linker (name width resolver) #:prefab)
-(struct label-anchor (name) #:prefab)
 
 (define (immediate? x)
   (or (number? x)
@@ -103,13 +97,18 @@
 	   (modulo (shr i 8) 256)
 	   (modulo i 256)))))
 
-(define (imm32 i)
+(define (imm32-rel i)
   (if (label-reference? i)
       (label-linker (label-reference-name i) 4 (lambda (delta i) (imm32* (- delta 4))))
       (imm32* i)))
 
+(define (imm32-abs i)
+  (if (label-reference? i)
+      (label-linker (label-reference-name i) 4 (lambda (delta i) (imm32* (+ delta i))))
+      (imm32* i)))
+
 (define (imm32-if test-result i)
-  (if test-result (imm32 i) (imm8 i)))
+  (if test-result (imm32-abs i) (imm8 i)))
 
 (define (imm64* i)
   (case (imm-endianness)
@@ -120,56 +119,19 @@
      (append (imm32* (shr i 32))
 	     (imm32* i)))))
 
-(define (imm64 i)
+(define (imm64-rel i)
   (if (label-reference? i)
       (label-linker (label-reference-name i) 8 (lambda (delta i) (imm64* (- delta 8))))
       (imm64* i)))
 
+(define (imm64-abs i)
+  (if (label-reference? i)
+      (label-linker (label-reference-name i) 8 (lambda (delta i) (imm64* (+ delta i))))
+      (imm64* i)))
+
 (define (imm64-if test-result i)
-  (if test-result (imm64 i) (imm8 i)))
+  (if test-result (imm64-abs i) (imm8 i)))
 
 (define (round-up-to-nearest n val)
   (let ((temp (+ val n -1)))
     (- temp (remainder temp n))))
-
-(define (internal-link instrs)
-  (define positions
-    (let loop ((i 0)
-	       (instrs instrs)
-	       (acc '()))
-      (cond
-       ((null? instrs) (reverse acc))
-       ((label-anchor? (car instrs)) (loop i
-					   (cdr instrs)
-					   (cons (cons (car instrs) i) acc)))
-       ((label-linker? (car instrs)) (loop (+ i (label-linker-width (car instrs)))
-					   (cdr instrs)
-					   acc))
-       (else (loop (+ i 1)
-		   (cdr instrs)
-		   acc)))))
-  (let loop ((i 0)
-	     (instrs instrs)
-	     (acc '())
-	     (relocs '()))
-    (cond
-     ((null? instrs) (values (reverse acc) (reverse relocs)))
-     ((label-anchor? (car instrs)) (loop i (cdr instrs) acc relocs))
-     ((label-linker? (car instrs))
-      (define l (car instrs))
-      (define cell (assoc (label-anchor (label-linker-name l)) positions))
-      (define anchor-pos (if cell (cdr cell) i))
-      (define delta (- anchor-pos i))
-      (define code (flatten ((label-linker-resolver l) delta i)))
-      (when (not (= (length code) (label-linker-width l)))
-	(error 'internal-link
-	       "Generated code ~v does not match promised width ~v"
-	       code
-	       (label-linker-width l)))
-      (loop (+ i (label-linker-width l))
-	    (cdr instrs)
-	    (append (reverse code) acc)
-	    (if cell
-		relocs
-		(cons (cons i (car instrs)) relocs))))
-     (else (loop (+ i 1) (cdr instrs) (cons (car instrs) acc) relocs)))))

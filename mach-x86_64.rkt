@@ -1,12 +1,13 @@
 #lang racket/base
 ;; Concrete machine: x86_64.
 
-(require racket/list)
 (require racket/match)
+(require (only-in racket/list append-map))
 (require (only-in srfi/1 iota))
 (require (only-in '#%foreign _int64))
 
 (require "lir.rkt")
+(require "linker.rkt")
 (require "asm-x86_64.rkt")
 (require (only-in "machine.rkt" machine-description))
 
@@ -231,15 +232,11 @@
   (define frame-size (round-up-to-nearest frame-alignment total-requirement))
   (define delta (- frame-size linkage-size))
 
-  (define pre-linking (flatten (list (*push 'rbp)
-				     (*mov 'rsp 'rbp)
-				     (*op 'sub delta 'rsp)
-				     (map (assemble-instr* inward-arg-count temp-count) instrs))))
-  (write `(pre-linking ,pre-linking)) (newline) (flush-output)
-
-  (define-values (linked relocs) (internal-link pre-linking))
-  (write `(relocations ,relocs)) (newline) (flush-output)
-  (list->bytes linked))
+  (values (list (*push 'rbp)
+		(*mov 'rsp 'rbp)
+		(*op 'sub delta 'rsp)
+		(map (assemble-instr* inward-arg-count temp-count) instrs))
+	  '()))
 
 (define machine-x86_64
   (machine-description 'x86_64

@@ -108,7 +108,7 @@
       (cond
        ((and (@imm? source) (register=? target 'eax))
 	;; special alternate encoding
-	(list (bitfield 7 #b1010000 1 w-bit) (imm32 (@imm-address source))))
+	(list (bitfield 7 #b1010000 1 w-bit) (imm32-abs (@imm-address source))))
        ((not (register? target))
 	(error "*mov: Cannot have memory source and non-register target" (list source target)))
        (else
@@ -117,7 +117,7 @@
       (cond
        ((and (@imm? target) (register=? source 'eax))
 	;; special alternate encoding
-	(list (bitfield 7 #b1010001 1 w-bit) (imm32 (@imm-address target))))
+	(list (bitfield 7 #b1010001 1 w-bit) (imm32-abs (@imm-address target))))
        ((or (memory? target) (register? target))
 	(mod-r-m-32 (bitfield 2 2 3 1 2 0 1 w-bit) source target))
        (else
@@ -136,7 +136,7 @@
 (define (*call-or-jmp-like immediate-opcode indirect-mod loc)
   (cond
    ((immediate? loc)
-    (list immediate-opcode (imm32 loc)))
+    (list immediate-opcode (imm32-rel loc)))
    ((or (register? loc) (memory? loc))
     (mod-r-m-32 #xFF indirect-mod loc))
    (else
@@ -152,7 +152,7 @@
 (define (*jmp-cc code loc)
   (let ((tttn (condition-code-num code)))
     ;; Short, 8-bit form: (list (bitfield 4 7 4 tttn) loc)
-    (list #x0F (bitfield 4 8 4 tttn) (imm32 loc))))
+    (list #x0F (bitfield 4 8 4 tttn) (imm32-rel loc))))
 
 (define (*push reg)
   (mod-r-m* 1 2 (reg-num reg)))

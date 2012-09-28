@@ -3,6 +3,7 @@
 (require rackunit)
 
 (require "asm-common.rkt")
+(require "linker.rkt")
 
 (provide (all-from-out "asm-common.rkt")
 	 (all-defined-out)) ;; TODO
@@ -173,30 +174,30 @@
   (define a (address-mode->address am))
   (define delta (@reg-delta a))
   (define u (reg-u a))
-  (imm32 (bitfield 4 (condition-code-num cc)
-		   2 1
-		   1 (bool->bit (@delta-reg? delta))
-		   1 (bool->bit p)
-		   1 (u-bit u)
-		   1 0
-		   1 (bool->bit w)
-		   1 (bool->bit load?)
-		   4 (reg-num (@reg-register a))
-		   4 (reg-num rt)
-		   12 (delta-field #f delta))))
+  (imm32* (bitfield 4 (condition-code-num cc)
+		    2 1
+		    1 (bool->bit (@delta-reg? delta))
+		    1 (bool->bit p)
+		    1 (u-bit u)
+		    1 0
+		    1 (bool->bit w)
+		    1 (bool->bit load?)
+		    4 (reg-num (@reg-register a))
+		    4 (reg-num rt)
+		    12 (delta-field #f delta))))
 
 (define (*str cc rt am) (ldr-or-str #f cc rt am))
 (define (*ldr cc rt am) (ldr-or-str #t cc rt am))
 
 (define (alu-op opcode cc s rd rn delta)
-  (imm32 (bitfield 4 (condition-code-num cc)
-		   2 0
-		   1 (bool->bit (@delta-imm? delta))
-		   4 opcode
-		   1 (bool->bit s)
-		   4 (reg-num rn)
-		   4 (reg-num rd)
-		   12 (delta-field #t delta))))
+  (imm32* (bitfield 4 (condition-code-num cc)
+		    2 0
+		    1 (bool->bit (@delta-imm? delta))
+		    4 opcode
+		    1 (bool->bit s)
+		    4 (reg-num rn)
+		    4 (reg-num rd)
+		    12 (delta-field #t delta))))
 
 (define (*and cc s rd rn delta) (alu-op 0 cc s rd rn delta))
 (define (*eor cc s rd rn delta) (alu-op 1 cc s rd rn delta))
@@ -215,14 +216,14 @@
 (define (*mvn cc s rd    delta) (alu-op 15 cc s rd 'r0 delta))
 
 (define (*mul cc s rd rn rm)
-  (imm32 (bitfield 4 (condition-code-num cc)
-		   7 0
-		   1 (bool->bit s)
-		   4 (reg-num rd)
-		   4 0
-		   4 (reg-num rm)
-		   4 9
-		   4 (reg-num rn))))
+  (imm32* (bitfield 4 (condition-code-num cc)
+		    7 0
+		    1 (bool->bit s)
+		    4 (reg-num rd)
+		    4 0
+		    4 (reg-num rm)
+		    4 9
+		    4 (reg-num rn))))
 
 ;; NB re +8: branch instruction assembly treats PC as being *the same
 ;; as the branch instruction's address*, i.e. the assembler
@@ -241,10 +242,10 @@
 (define (b-or-bl* cc link? imm24)
   (when (not (zero? (bitwise-and imm24 3)))
     (error '*b "Immediate PC-relative branch target offset must be a multiple of 4: ~v" imm24))
-  (imm32 (bitfield 4 (condition-code-num cc)
-		   3 5
-		   1 (bool->bit link?)
-		   -24 (shr (- imm24 8) 2)))) ;; -8 because it's (pc+8)-relative
+  (imm32* (bitfield 4 (condition-code-num cc)
+		    3 5
+		    1 (bool->bit link?)
+		    -24 (shr (- imm24 8) 2)))) ;; -8 because it's (pc+8)-relative
 
 ;; See note re +8 above.
 (define (*b cc loc) (b-or-bl cc #f loc))
@@ -374,11 +375,11 @@
        ;; (*str 'al 'r1 (@reg 'r0 '+ 0)) ;; r1 into r0
        ;; (*add 'al 0 'r1 'r1 1) ;; increment byte
        ;; (*b 'al -16)
-       ;; (imm32 #x101f1000) ;; UART0
+       ;; (imm32* #x101f1000) ;; UART0
 
        (*ldr 'al 'r0 (@reg 'pc '+ 0)) ;; + 16 - 8 = 8
        (*b 'al 0)
-       (imm32 #x101f1000) ;; UART0
+       (imm32* #x101f1000) ;; UART0
 
        (*mov 'al 0 'r2 0)
 

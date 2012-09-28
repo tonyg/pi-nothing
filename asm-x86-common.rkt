@@ -117,8 +117,8 @@
       ;; raw absolute address, always 32 bits
       ;; see also caveat wrt (@reg 'ebp 0) below
       (if is-64bit?
-	  (rex-wrap reg 0 0 (list (mod-r-m* 0 reg 4) #x25 (imm32 (@imm-address modrm))))
-	  (list opcodes (mod-r-m* 0 reg 5) (imm32 (@imm-address modrm)))))
+	  (rex-wrap reg 0 0 (list (mod-r-m* 0 reg 4) #x25 (imm32* (@imm-address modrm))))
+	  (list opcodes (mod-r-m* 0 reg 5) (imm32* (@imm-address modrm)))))
      ((@reg? modrm)
       (let ((base-reg (@reg-register modrm))
 	    (offset (@reg-offset modrm)))
@@ -127,7 +127,7 @@
 			 (else 2)))
 	      (offset-bytes (cond ((zero? offset) '())
 				  ((onebyte-immediate? offset) (imm8 offset))
-				  (else (imm32 offset))))
+				  (else (imm32* offset))))
 	      (base-reg-num (reg-num base-reg)))
 	  (cond
 	   ((= base-reg-num 4) ;; esp, rsp

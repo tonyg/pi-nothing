@@ -2,11 +2,12 @@
 ;; Concrete machine: ARMv7.
 
 (require racket/match)
-(require racket/list)
+(require (only-in racket/list append-map))
 (require (only-in srfi/1 iota))
 (require (only-in '#%foreign _int32))
 
 (require "lir.rkt")
+(require "linker.rkt")
 (require "asm-arm7.rkt")
 (require (only-in "machine.rkt" machine-description))
 (require "unsigned.rkt")
@@ -143,6 +144,30 @@
 		(list i)])
 	      instrs))
 
+(define (nodata code)
+  (values code '()))
+
+(define (code/data code data)
+  (values code data))
+
+;; For loading immediate values too large to fit in a single instruction.
+(define (indirect-immediate target-reg immediate more-code)
+  (if (label-reference? immediate)
+      (nodata (label-linker (label-reference-name immediate)
+			    4
+			    (lambda (delta i)
+			      (define final-delta (- delta 8))
+			      (if (negative? final-delta)
+				  (*sub 'al 0 target-reg 'pc (- final-delta))
+				  (*add 'al 0 target-reg 'pc final-delta)))))
+      (let ((L (fresh-label)))
+	(code/data (list (label-linker (label-tag L)
+				       4
+				       (lambda (delta i)
+					 (*ldr 'al target-reg (@reg 'pc '+ (- delta 8)))))
+			 more-code)
+		   (list (label-anchor (label-tag L)) (imm32* immediate))))))
+
 ;; Stack frames need to account for
 ;;  - inward args numbered 4 and above
 ;;  - saved temporaries
@@ -213,31 +238,26 @@
        ;; Note that the *source* of the move goes in the "target
        ;; register" position because of the syntactic weirdness of the
        ;; STR instruction.
-       (*str 'al real-source real-target)]
+       (nodata (*str 'al real-source real-target))]
       [(@reg? real-source)
-       (*ldr 'al real-target real-source)]
+       (nodata (*ldr 'al real-target real-source))]
       [(or (label-reference? real-source)
 	   (and (number? real-source)
 		(not (best-rotation-exists? real-source))))
        ;; Compare to the "load" instruction code slightly below. This is like x86 LEA.
-       (list (*ldr 'al real-target (@reg 'pc '+ 0))
-	     (*b 'al 8)
-	     (imm32 real-source))]
+       (indirect-immediate real-target
+			   real-source
+			   '())]
       [else
-       (*mov 'al 0 real-target real-source)])]
+       (nodata (*mov 'al 0 real-target real-source))])]
     [`(load ,(preg target) ,(lit n) ,ofs)
-     ;; TODO: have some way of putting the location-of-the-location
-     ;; out-of-line. (The ARM manuals call this a "literal pool".)
-     ;; This will involve some threaded state or at the least a more
-     ;; complex return type for assemble-instr.
-     (list (*ldr 'al target (@reg 'pc '+ 0)) ;; eight bytes from the start of this instr
-	   (*b 'al 8) ;; branch to instruction 8 bytes ahead of this one
-	   (imm32 (+ n ofs))
-	   (*ldr 'al target (@reg target '+ 0)))]
-    [`(w+ ,target ,s1 ,s2)			(*add 'al 0 (xs target) (xs s1) (xs s2))]
-    [`(w- ,target ,s1 ,s2)			(*sub 'al 0 (xs target) (xs s1) (xs s2))]
-    [`(w* ,target ,s1 ,s2)			(*mul 'al 0 (xs target) (xs s1) (xs s2))]
-    [`(wdiv ,(preg 'r0) ,(preg 'r0) ,(preg 'r1)) (*bl 'al (label-reference '__udivsi3))]
+     (indirect-immediate target
+			 (+ n ofs)
+			 (*ldr 'al target (@reg target '+ 0)))]
+    [`(w+ ,target ,s1 ,s2)			(nodata (*add 'al 0 (xs target) (xs s1) (xs s2)))]
+    [`(w- ,target ,s1 ,s2)			(nodata (*sub 'al 0 (xs target) (xs s1) (xs s2)))]
+    [`(w* ,target ,s1 ,s2)			(nodata (*mul 'al 0 (xs target) (xs s1) (xs s2)))]
+    [`(wdiv ,(preg 'r0) ,(preg 'r0) ,(preg 'r1)) (nodata (*bl 'al (label-reference '__udivsi3)))]
     [`(compare ,cmpop ,target ,s1 ,s2)
      ;; Let wolog cmpop be <. Then we wish to compute s1 - s2 and have
      ;; the comparison be true if the result of subtraction is
@@ -250,46 +270,52 @@
 		  ((=) 'eq) ((<>) 'ne)
 		  ((>s) 'gt) ((>=s) 'ge)
 		  ((>u) 'hi)))
-     (list (*cmp 'al (xs s1) (xs s2))
-	   (*mov 'al 0 (xs target) 0)
-	   (*mov cc 0 (xs target) 1))]
+     (nodata (list (*cmp 'al (xs s1) (xs s2))
+		   (*mov 'al 0 (xs target) 0)
+		   (*mov cc 0 (xs target) 1)))]
     [(label tag)
-     (label-anchor tag)]
+     (nodata (label-anchor tag))]
     [`(jmp-false ,(preg val) ,(label tag))
-     (list (*cmp 'al val 0)
-	   (*b 'eq (label-reference tag)))]
-    [`(jmp ,(label tag))			(*b 'al (label-reference tag))]
-    [`(ret ,(preg 'r0))				(*mov 'al 0 'pc 'lr)]
+     (nodata (list (*cmp 'al val 0)
+		   (*b 'eq (label-reference tag))))]
+    [`(jmp ,(label tag))			(nodata (*b 'al (label-reference tag)))]
+    [`(ret ,(preg 'r0))				(nodata (*mov 'al 0 'pc 'lr))]
     [`(call ,(preg 'r0) ,(label tag) ,args)
      (define outward-arg-count (length args))
      (define delta (round-up-to-nearest frame-alignment
 					(* (+ outward-arg-count temp-count)
 					   word-size-bytes)))
-     (list (if (zero? delta) '() (*sub 'al 0 'sp 'sp delta))
-	   (*bl 'al (label-reference tag))
-	   (if (zero? delta) '() (*add 'al 0 'sp 'sp delta)))]
+     (nodata (list (if (zero? delta) '() (*sub 'al 0 'sp 'sp delta))
+		   (*bl 'al (label-reference tag))
+		   (if (zero? delta) '() (*add 'al 0 'sp 'sp delta))))]
     [`(tailcall ,(preg 'r0) ,(label tag) ,args)
      (define delta (- (length args) inward-arg-count))
-     (list (if (zero? delta)
-	       '()
-	       ;; TODO: FATAL: we can't use this calling convention
-	       (*sub 'al 0 'sp 'sp (* delta word-size-bytes)))
-	   (*b 'al (label-reference tag)))]
+     (nodata (list (if (zero? delta)
+		       '()
+		       ;; TODO: FATAL: we can't use this calling convention
+		       (*sub 'al 0 'sp 'sp (* delta word-size-bytes)))
+		   (*b 'al (label-reference tag))))]
     [_ (error 'assemble-instr "Cannot assemble ~v" i)]))
 
 (define ((assemble-instr* inward-arg-count temp-count) i)
-  (define bs ((assemble-instr inward-arg-count temp-count) i))
-  (write `(,i -> ,bs))
+  (define-values (icode idata) ((assemble-instr inward-arg-count temp-count) i))
+  (write `(,i -> ,icode ,idata))
   (newline)
   (flush-output)
-  bs)
+  (values icode idata))
 
 (define (assemble inward-arg-count temp-count instrs)
-  (define pre-linking (flatten (map (assemble-instr* inward-arg-count temp-count) instrs)))
-  (write `(pre-linking ,pre-linking)) (newline) (flush-output)
-  (define-values (linked relocs) (internal-link pre-linking))
-  (write `(relocations ,relocs)) (newline) (flush-output)
-  (list->bytes linked))
+  (let loop ((instrs instrs)
+	     (code-rev '())
+	     (data-rev '()))
+    (match instrs
+      ['() (values (reverse code-rev)
+		   (reverse data-rev))]
+      [(cons instr rest)
+       (define-values (icode idata) ((assemble-instr* inward-arg-count temp-count) instr))
+       (loop rest
+	     (cons icode code-rev)
+	     (cons idata data-rev))])))
 
 (define machine-arm7
   (machine-description 'arm7

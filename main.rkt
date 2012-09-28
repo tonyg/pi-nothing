@@ -60,6 +60,8 @@
 (require racket/pretty)
 (require rackunit)
 
+(te '() '(data #"Hello") '())
+
 (te '() `(+ 1 2 3) '())
 (te '() `(let ((a (? 123))) (+ a a a)) '())
 
@@ -137,10 +139,9 @@
 
 (te '(argc argv)
     '(begin
-       (puts str)
+       (puts (data #"Hello world"))
        #x12345678)
-    `((puts ,(label '_puts))
-      (str ,(label 'str_data_pointer))))
+    `((puts ,(label '_puts))))
 
 (check-equal? (re '(a b) '(+ a b) '() '(123 234)) 357)
 (check-equal? (re '(a b) '(if (>s a b) 111 222) '() '(123 234)) 222)
