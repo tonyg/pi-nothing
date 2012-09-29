@@ -278,7 +278,8 @@
 ;; See note re +8 above.
 (define (b-or-bl* cc link? imm24)
   (when (not (zero? (bitwise-and imm24 3)))
-    (error '*b "Immediate PC-relative branch target offset must be a multiple of 4: ~v" imm24))
+    (error 'b-or-bl*
+	   "Immediate PC-relative branch target offset must be a multiple of 4: ~v" imm24))
   (imm32* (bitfield 4 (condition-code-num cc)
 		    3 5
 		    1 (bool->bit link?)
