@@ -2,7 +2,7 @@
 
 (require racket/match)
 (require (only-in racket/file file->list))
-(require (only-in racket/list make-list))
+(require (only-in racket/list make-list append-map))
 (require racket/pretty)
 
 (require "driver.rkt")
@@ -26,12 +26,14 @@
 	(*b 'al 0) ;; loop forever
 	))
 
-(define (compile-toplevel form)
+(define (compile-toplevel form global-env)
   (match form
     [`(define (,proc ,argname ...)
 	,body ...)
-     (define-values (code data) (compile-procedure md argname `(begin ,@body) '()))
+     (define-values (code data) (compile-procedure md argname `(begin ,@body) global-env))
      (values (cons (label-anchor proc) code) data)]
+    [`(struct ,_ ...)	(values '() '())]
+    [`(const ,_ ...)	(values '() '())]
     [_
      (error 'compile-toplevel "Cannot compile toplevel form: ~v" form)]))
 
@@ -59,8 +61,35 @@
       bs
       (cons bs (make-list (- multiple leftover) 0))))
 
+(define (field-def-size def)
+  (match def
+    [`(,name word) 4]
+    [`(,name word ,n) (* 4 n)]
+    [`(,name byte) 1]
+    [`(,name byte ,n) (* 1 n)]))
+
+(define (symbol-append . syms)
+  (string->symbol (apply string-append (map symbol->string syms))))
+
+(define (extract-constants forms)
+  (append-map (match-lambda
+	       [`(struct ,name (,field-defs ...))
+		(define struct-size (foldl + 0 (map field-def-size field-defs)))
+		(do ((field-defs field-defs (cdr field-defs))
+		     (offset 0 (+ offset (field-def-size (car field-defs))))
+		     (acc (list (list (symbol-append 'sizeof- name) (lit struct-size)))
+			  (cons (list (symbol-append name '- (car (car field-defs))) (lit offset))
+				acc)))
+		    ((null? field-defs) (reverse acc)))]
+	       [`(const ,name ,(? number? literal-value))
+		(list (list name (lit literal-value)))]
+	       [_
+		'()])
+	      forms))
+
 (define (compile-file filename)
   (define all-forms (file->list filename))
+  (define global-env (extract-constants all-forms))
   (let loop ((forms all-forms)
 	     (blobs-rev '()))
     (match forms
@@ -68,7 +97,7 @@
        (define blobs (reverse blobs-rev))
        (link-blobs blobs)]
       [(cons form rest)
-       (define-values (code data) (compile-toplevel form))
+       (define-values (code data) (compile-toplevel form global-env))
        (loop rest
 	     (list* (pad-to data 4)
 		    (pad-to code 4)
