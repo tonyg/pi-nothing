@@ -83,10 +83,10 @@
 	     (map (lambda (name) `(move-word ,(preg name) ,(junk))) killed-regs)
 	     (map (lambda (name) `(use ,(preg name))) killed-regs)
 	     (list`(move-word ,target ,(preg 'r0))))]
-    [`(store ,(? non-reg? target) ,source)
+    [`(,(and op (or 'store-word 'store-byte)) ,(? non-reg? target) ,source)
      (define r (fresh-reg))
      (list `(move-word ,r ,target)
-	   `(store ,r ,source))]
+	   `(,op ,r ,source))]
     [i
      (list i)]))
 
@@ -146,14 +146,14 @@
 		(define r (fresh-reg))
 		(list `(move-word ,r ,m)
 		      `(compare ,cmpop ,target ,n ,r))]
-	       [`(load ,(temporary n) ,source ,offset)
+	       [`(,(and op (or 'load-word 'load-byte)) ,(temporary n) ,source ,offset)
 		(define r (fresh-reg))
-		(list `(load ,r ,source ,offset)
+		(list `(,op ,r ,source ,offset)
 		      `(move-word ,(temporary n) ,r))]
-	       [`(store ,target ,(temporary n))
+	       [`(,(and op (or 'store-word 'store-byte)) ,target ,(temporary n))
 		(define r (fresh-reg))
 		(list `(move-word ,r ,(temporary n))
-		      `(store ,target ,r))]
+		      `(,op ,target ,r))]
 	       [i
 		(list i)])
 	      instrs))
@@ -258,18 +258,24 @@
       [(or (label-reference? real-source)
 	   (and (number? real-source)
 		(not (best-rotation-exists? real-source))))
-       ;; Compare to the "load" instruction code slightly below. This is like x86 LEA.
+       ;; Compare to the "load-word" instruction code slightly below. This is like x86 LEA.
        (indirect-immediate real-target
 			   real-source
 			   '())]
       [else
        (nodata (*mov 'al 0 real-target real-source))])]
-    [`(load ,(preg target) ,(lit n) ,ofs)
+    [`(load-word ,(preg target) ,(lit n) ,ofs)
      (indirect-immediate target
 			 (+ n ofs)
 			 (*ldr 'al target (@reg target '+ 0)))]
-    [`(store ,(preg target) ,(preg source))
+    [`(load-byte ,(preg target) ,(lit n) ,ofs)
+     (indirect-immediate target
+			 (+ n ofs)
+			 (*ldrb 'al target (@reg target '+ 0)))]
+    [`(store-word ,(preg target) ,(preg source))
      (nodata (*str 'al source (@reg target '+ 0)))]
+    [`(store-byte ,(preg target) ,(preg source))
+     (nodata (*strb 'al source (@reg target '+ 0)))]
     [`(w+ ,target ,s1 ,s2)			(nodata (*add 'al 0 (xs target) (xs s1) (xs s2)))]
     [`(w- ,target ,s1 ,s2)			(nodata (*sub 'al 0 (xs target) (xs s1) (xs s2)))]
     [`(w* ,target ,s1 ,s2)			(nodata (*mul 'al 0 (xs target) (xs s1) (xs s2)))]
