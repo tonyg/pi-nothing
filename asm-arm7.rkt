@@ -8,8 +8,6 @@
 (provide (all-from-out "asm-common.rkt")
 	 (all-defined-out)) ;; TODO
 
-;; TODO: register-shifted-register Deltas
-
 ;; A Delta is either Integer or Register or a (@shifted Register Shift).
 (struct @shifted (reg shift) #:prefab)
 
@@ -28,7 +26,10 @@
 
 ;; A Shift can be a signed number, meaning a left or right LOGICAL
 ;; shift by a constant number of places (negative meaning rightward),
-;; or one of the following structs:
+;; a register, meaning a LEFT LOGICAL shift by a variable number of
+;; places, or one of the following structs. The n can be a signed
+;; number or a register.
+(struct @lsr (n) #:prefab) ;; logical shift right; mostly here for shift-by-register
 (struct @asr (n) #:prefab)
 (struct @ror (n) #:prefab) ;; n must not be 0
 (struct @rrx () #:prefab)
@@ -123,20 +124,32 @@
 ;; Shift -> Number
 (define (shift-type-code s)
   (cond
+   ((@lsr? s) 1)
    ((@asr? s) 2)
    ((@ror? s) 3)
    ((@rrx? s) 3)
-   ((negative? s) 1)
-   (else 0))) ;; positive or zero
+   ((and (number? s) (negative? s)) 1)
+   (else 0))) ;; positive or zero or register
+
+;; Shift -> (U Number Register)
+(define (shift-immediate* s)
+  (cond ((@lsr? s) (@lsr-n s))
+	((@asr? s) (@asr-n s))
+	((@ror? s) (@ror-n s))
+	((@rrx? s) 0)
+	((and (number? s) (negative? s)) (- s))
+	(else s)))
 
 ;; Shift -> Number
 (define (shift-immediate s)
-  (cond
-   ((@asr? s) (@asr-n s))
-   ((@ror? s) (@ror-n s))
-   ((@rrx? s) 0)
-   ((negative? s) (- s))
-   (else s)))
+  (define n (shift-immediate* s))
+  (if (register? n)
+      (bitfield 4 (reg-num n) 1 0)
+      n))
+
+;; Shift -> Boolean
+(define (shift-by-register? s)
+  (register? (shift-immediate* s)))
 
 ;; Number -> (Option (Pairof Number Number))
 (define (best-rotation* imm0)
@@ -164,7 +177,7 @@
 	  (bitfield -12 d))
       (bitfield 5 (shift-immediate (@delta-shift d))
 		2 (shift-type-code (@delta-shift d))
-		1 0
+		1 (bool->bit (shift-by-register? (@delta-shift d)))
 		4 (reg-num (@delta-reg d)))))
 
 ;; Boolean Boolean Condition Register AddressMode -> MachineCode
