@@ -133,10 +133,12 @@
 		    (let ((r (fresh-reg)))
 		      (list `(move-word ,r ,m)
 			    `(move-word ,n ,r))))]
-	       [`(,(and op (or 'w+ 'w- 'w* 'wdiv 'wmod))
+	       [`(,(and op (or 'w+ 'w- 'w* 'wand 'wor 'wxor 'wdiv 'wmod))
 		  ,target
 		  ,(? non-reg? s1)
 		  ,s2)
+		;; TODO: separate out commutative operators here and
+		;; try flipping the arguments to see if that is an option
 		(define r (fresh-reg))
 		(list `(move-word ,r ,s1)
 		      `(,op ,target ,r ,s2))]
@@ -279,6 +281,10 @@
     [`(w+ ,target ,s1 ,s2)			(nodata (*add 'al 0 (xs target) (xs s1) (xs s2)))]
     [`(w- ,target ,s1 ,s2)			(nodata (*sub 'al 0 (xs target) (xs s1) (xs s2)))]
     [`(w* ,target ,s1 ,s2)			(nodata (*mul 'al 0 (xs target) (xs s1) (xs s2)))]
+    [`(wand ,target ,s1 ,s2)			(nodata (*and 'al 0 (xs target) (xs s1) (xs s2)))]
+    [`(wor ,target ,s1 ,s2)			(nodata (*orr 'al 0 (xs target) (xs s1) (xs s2)))]
+    [`(wxor ,target ,s1 ,s2)			(nodata (*eor 'al 0 (xs target) (xs s1) (xs s2)))]
+    [`(wnot ,target ,source)			(nodata (*mvn 'al 0 (xs target) (xs source)))]
     [`(wdiv ,(preg 'r0) ,(preg 'r0) ,(preg 'r1)) (nodata (*bl 'al (label-reference '__udivsi3)))]
     [`(compare ,cmpop ,target ,s1 ,s2)
      ;; Let wolog cmpop be <. Then we wish to compute s1 - s2 and have

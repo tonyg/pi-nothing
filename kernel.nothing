@@ -5,19 +5,8 @@
      ch))
 
 (define (main)
-  (putc 66)
-  (putc 67)
-  (putc 68)
-  (main))
+  (char-loop 0))
 
-;; (*ldr 'al 'r0 (@reg 'pc '+ 0)) ;; + 16 - 8 = 8
-;; (*b 'al 0)
-;; (imm32* #x101f1000) ;; UART0
-
-;; (*mov 'al 0 'r2 0)
-
-;; (*add 'al 0 'r1 'r2 65) ;; ASCII for capital A
-;; (*str 'al 'r1 (@reg 'r0 '+ 0))	     ;; r1 into r0
-;; (*add 'al 0 'r2 'r2 1)		     ;; increment byte
-;; (*and 'al 0 'r2 'r2 31)		     ;; truncate
-;; (*b 'al (* (- -4 2) 4))
+(define (char-loop counter)
+  (putc (+ counter 65))
+  (char-loop (and 31 (+ counter 1))))
