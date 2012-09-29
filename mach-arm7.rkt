@@ -42,6 +42,12 @@
       (preg (list-ref '(r0 r1 r2 r3) i))
       (outward-arg calltype count (- i 4))))
 
+(define (reg-or-preg? x)
+  (or (reg? x) (preg? x)))
+
+(define (non-reg? x)
+  (not (reg-or-preg? x)))
+
 (define ((expand-instruction saved-locs) instr)
   (match instr
     [`(wdiv ,target ,s1 ,s2)
@@ -77,6 +83,10 @@
 	     (map (lambda (name) `(move-word ,(preg name) ,(junk))) killed-regs)
 	     (map (lambda (name) `(use ,(preg name))) killed-regs)
 	     (list`(move-word ,target ,(preg 'r0))))]
+    [`(store ,(? non-reg? target) ,source)
+     (define r (fresh-reg))
+     (list `(move-word ,r ,target)
+	   `(store ,r ,source))]
     [i
      (list i)]))
 
@@ -125,7 +135,7 @@
 			    `(move-word ,n ,r))))]
 	       [`(,(and op (or 'w+ 'w- 'w* 'wdiv 'wmod))
 		  ,target
-		  ,(? (lambda (v) (not (or (reg? v) (preg? v)))) s1)
+		  ,(? non-reg? s1)
 		  ,s2)
 		(define r (fresh-reg))
 		(list `(move-word ,r ,s1)
@@ -140,6 +150,10 @@
 		(define r (fresh-reg))
 		(list `(load ,r ,source ,offset)
 		      `(move-word ,(temporary n) ,r))]
+	       [`(store ,target ,(temporary n))
+		(define r (fresh-reg))
+		(list `(move-word ,r ,(temporary n))
+		      `(store ,target ,r))]
 	       [i
 		(list i)])
 	      instrs))
@@ -254,6 +268,8 @@
      (indirect-immediate target
 			 (+ n ofs)
 			 (*ldr 'al target (@reg target '+ 0)))]
+    [`(store ,(preg target) ,(preg source))
+     (nodata (*str 'al source (@reg target '+ 0)))]
     [`(w+ ,target ,s1 ,s2)			(nodata (*add 'al 0 (xs target) (xs s1) (xs s2)))]
     [`(w- ,target ,s1 ,s2)			(nodata (*sub 'al 0 (xs target) (xs s1) (xs s2)))]
     [`(w* ,target ,s1 ,s2)			(nodata (*mul 'al 0 (xs target) (xs s1) (xs s2)))]
