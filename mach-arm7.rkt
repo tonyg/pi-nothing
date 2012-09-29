@@ -309,10 +309,10 @@
      ;; correct order.
      (define cc (case cmpop
 		  ((<=s) 'le) ((<s) 'lt)
-		  ((<=u) 'ls)
+		  ((<=u) 'ls) ((<u) 'lo)
 		  ((=) 'eq) ((<>) 'ne)
 		  ((>s) 'gt) ((>=s) 'ge)
-		  ((>u) 'hi)))
+		  ((>u) 'hi) ((>=u) 'hs)))
      (define real-s2 (xs s2))
      (nodata (list (if (and (number? real-s2) (negative? real-s2))
 		       (*cmn 'al (xs s1) (- real-s2))
