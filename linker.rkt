@@ -2,17 +2,30 @@
 ;; Linking of machine code.
 
 (require (only-in racket/list flatten))
+(require racket/match)
 
 (provide (struct-out label-reference)
 	 (struct-out label-linker)
 	 (struct-out label-anchor)
 
+	 machine-code-length
 	 link
 	 )
 
 (struct label-reference (name) #:prefab)
 (struct label-linker (name width resolver) #:prefab)
 (struct label-anchor (name) #:prefab)
+
+(define (machine-code-length x)
+  (let loop ((x x)
+	     (acc 0))
+    (match x
+      ['() acc]
+      [(cons l r) (loop l (loop r acc))]
+      [(? label-anchor?) acc]
+      [(? label-linker? ll) (+ acc (label-linker-width ll))]
+      [(? bytes? bs) (+ acc (bytes-length bs))]
+      [(? number?) (+ acc 1)])))
 
 (define (link raw-bs base-address)
   (define bs (flatten raw-bs))
