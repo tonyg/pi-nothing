@@ -26,6 +26,40 @@
 	(*b 'al 0) ;; loop forever
 	))
 
+(define (__udivsi3-code)
+  (define A 'r0)
+  (define B 'r1)
+  (define R 'r2)
+  (define I 'r3)
+  (define Q 'r7)
+  (define ONE 'lr) ;; !
+  (list (label-anchor '__udivsi3)
+	;; Based on clang-163.7.1's udivsi3.S, under MIT license
+	  (*push 'al '(r7 lr))
+	  (*clz 'al 'r2 A)
+	  (*tst 'al B B)
+	  (*clz 'al 'r3 B)
+	  (*mov 'al 0 Q 0)
+	  (*b 'eq (label-reference '__udivsi3-division-by-zero))
+	  (*mov 'al 0 ONE 1)
+	  (*sub 'al 1 I 'r3 'r2)
+	  (*b 'lt (label-reference '__udivsi3-return))
+	(label-anchor '__udivsi3-mainloop)
+	  (*sub 'al 1 R A (@shifted B I))
+	  (*orr 'hs 0 Q Q (@shifted ONE I))
+	  (*mov 'hs 0 A R)
+	  (*sub 'ne 1 I I 1)
+	  (*b 'hi (label-reference '__udivsi3-mainloop))
+	  (*sub 'al 1 R A B)
+	  (*orr 'hs 0 Q Q 1)
+	(label-anchor '__udivsi3-return)
+	  (*mov 'al 0 'r0 Q)
+	  (*mov 'al 0 'r1 R) ;; remainder
+	  (*pop 'al '(r7 pc))
+	(label-anchor '__udivsi3-division-by-zero)
+	  (*pop 'al '(r7 lr))
+	  (*b 'al (label-reference 'division-by-zero))))
+
 (define (compile-toplevel form global-env)
   (match form
     [`(define (,proc ,argname ...)
@@ -38,7 +72,9 @@
      (error 'compile-toplevel "Cannot compile toplevel form: ~v" form)]))
 
 (define (link-blobs blobs)
-  (define all-blobs (cons (startup-code) blobs))
+  (define all-blobs (list* (startup-code)
+			   (__udivsi3-code)
+			   blobs))
   (pretty-print `(all-blobs ,all-blobs))
   (define-values (linked0 relocs link-map) (link all-blobs start-addr))
   (when (not (null? relocs))
