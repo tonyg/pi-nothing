@@ -38,6 +38,7 @@
   (define instrs (expand-instructions md init-arg-instrs body-instrs))
   ;;(pretty-print `(post-expansion ,instrs))
   (define-values (temp-count allocated-instrs) (allocate-registers md surplus-tail-args instrs))
+  ;;(pretty-print `(post-allocation ,allocated-instrs))
   (define peepholed-instrs (peephole allocated-instrs))
   (pretty-print `(peepholed-instrs ,peepholed-instrs))
   (define-values (machine-code machine-data)
