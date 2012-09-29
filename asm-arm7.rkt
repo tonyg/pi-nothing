@@ -288,3 +288,12 @@
 (define (*b cc loc) (b-or-bl cc #f loc))
 ;; See note re +8 above.
 (define (*bl cc loc) (b-or-bl cc #t loc))
+
+(define (*clz cc rd rm)
+  (imm32* (bitfield 4 (condition-code-num cc)
+		    8 #b00010110
+		    4 15
+		    4 (reg-num rd)
+		    4 15
+		    4 1
+		    4 (reg-num rm))))
