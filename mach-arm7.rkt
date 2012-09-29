@@ -266,10 +266,14 @@
 			   '())]
       [else
        (nodata (*mov 'al 0 real-target real-source))])]
+    [`(load-word ,(preg target) ,(preg source) ,ofs)
+     (nodata (*ldr 'al target (@reg source '+ ofs)))]
     [`(load-word ,(preg target) ,(lit n) ,ofs)
      (indirect-immediate target
 			 (+ n ofs)
 			 (*ldr 'al target (@reg target '+ 0)))]
+    [`(load-byte ,(preg target) ,(preg source) ,ofs)
+     (nodata (*ldrb 'al target (@reg source '+ ofs)))]
     [`(load-byte ,(preg target) ,(lit n) ,ofs)
      (indirect-immediate target
 			 (+ n ofs)
