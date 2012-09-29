@@ -76,20 +76,20 @@
   (case cc
     ((eq) 0)
     ((ne) 1)
-    ((cs) 2)
-    ((cc) 3)
-    ((mi) 4)
-    ((pl) 5)
-    ((vs) 6)
-    ((vc) 7)
-    ((hi) 8)
-    ((ls) 9)
-    ((ge) 10)
-    ((lt) 11)
-    ((gt) 12)
-    ((le) 13)
+    ((cs hs) 2) ;; hs = unsigned higher or same
+    ((cc lo) 3) ;; lo = unsigned lower
+    ((mi) 4) ;; negative
+    ((pl) 5) ;; zero or positive
+    ((vs) 6) ;; overflow
+    ((vc) 7) ;; no overflow
+    ((hi) 8) ;; unsigned higher
+    ((ls) 9) ;; unsigned lower or same
+    ((ge) 10) ;; signed
+    ((lt) 11) ;; signed
+    ((gt) 12) ;; signed
+    ((le) 13) ;; signed
     ((al) 14)
-    ((nv) 15)
+    ((nv) 15) ;; plus some other meanings besides "never"
     (else (error 'condition-code-num "Invalid condition-code label ~v" cc))))
 
 (define (bool->bit v)
