@@ -26,3 +26,8 @@ beaengine/dist: beaengine
 clean:
 	rm -rf beaengine
 	rm -f beaengine-wrapper.so
+
+###########################################################################
+
+kernel.bin: kernel.nothing *.rkt
+	racket main-arm.rkt
