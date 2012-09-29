@@ -52,6 +52,6 @@
 (define (compile-and-link-procedure md arg-names body-exp env base-address)
   (define-values (code data)
     (compile-procedure md arg-names body-exp env))
-  (define-values (linked relocs) (link (list code data) base-address))
+  (define-values (linked relocs link-map) (link (list code data) base-address))
   (write `(relocations ,relocs)) (newline) (flush-output)
   (list->bytes linked))

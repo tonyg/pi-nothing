@@ -39,7 +39,7 @@
 	     (acc '())
 	     (relocs '()))
     (cond
-     ((null? bs) (values (reverse acc) (reverse relocs)))
+     ((null? bs) (values (reverse acc) (reverse relocs) positions))
      ((label-anchor? (car bs)) (loop i (cdr bs) acc relocs))
      ((label-linker? (car bs))
       (define l (car bs))
