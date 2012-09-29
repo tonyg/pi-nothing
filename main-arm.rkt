@@ -52,9 +52,10 @@
 	  (*b 'hi (label-reference '__udivsi3-mainloop))
 	  (*sub 'al 1 R A B)
 	  (*orr 'hs 0 Q Q 1)
+	  (*mov 'hs 0 A R)
 	(label-anchor '__udivsi3-return)
+	  (*mov 'al 0 'r1 A) ;; remainder
 	  (*mov 'al 0 'r0 Q)
-	  (*mov 'al 0 'r1 R) ;; remainder
 	  (*pop 'al '(r7 pc))
 	(label-anchor '__udivsi3-division-by-zero)
 	  (*pop 'al '(r7 lr))
