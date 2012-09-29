@@ -302,7 +302,10 @@
 		  ((=) 'eq) ((<>) 'ne)
 		  ((>s) 'gt) ((>=s) 'ge)
 		  ((>u) 'hi)))
-     (nodata (list (*cmp 'al (xs s1) (xs s2))
+     (define real-s2 (xs s2))
+     (nodata (list (if (and (number? real-s2) (negative? real-s2))
+		       (*cmn 'al (xs s1) (- real-s2))
+		       (*cmp 'al (xs s1) real-s2))
 		   (*mov 'al 0 (xs target) 0)
 		   (*mov cc 0 (xs target) 1)))]
     [(label tag)

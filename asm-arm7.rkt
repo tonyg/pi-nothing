@@ -211,6 +211,7 @@
 (define (*rsc cc s rd rn delta) (alu-op 7 cc s rd rn delta))
 
 (define (*cmp cc      rn delta) (alu-op 10 cc 1 'r0 rn delta))
+(define (*cmn cc      rn delta) (alu-op 11 cc 1 'r0 rn delta))
 
 (define (*orr cc s rd rn delta) (alu-op 12 cc s rd rn delta))
 (define (*mov cc s rd    delta) (alu-op 13 cc s rd 'r0 delta))
