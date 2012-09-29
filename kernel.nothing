@@ -21,6 +21,10 @@
 (const uart-flag-rx-fifo-empty #x10)
 (const uart-flag-tx-fifo-full #x20)
 
+(define (division-by-zero a b)
+  (puts (data #"Division by zero\0"))
+  (while 1))
+
 (define (putc ch)
   (while (and (? (+ uart0 uart-fr)) uart-flag-tx-fifo-full))
   (! (+ uart0 uart-dr) ch))
@@ -43,10 +47,27 @@
 	       (puts (+ p 1)))
 	0)))
 
+(define (putn* i)
+  (if i
+      (begin (putn* (/ i 10))
+	     (putc (+ (% i 10) 48)))
+      0))
+
+(define (putn i)
+  (if i
+      (putn* i)
+      (putc 48)))
+
+(define (newline)
+  (putc 13)
+  (putc 10))
+
 (define (main)
+  (putn 0) (newline)
+  (putn 12345) (newline)
   (puts (data #"Hello, world!\n\0"))
   (while 1
     (let ((ch (getc)))
       (puts (data #"You typed: \0"))
       (putc ch)
-      (putc 10))))
+      (newline))))
