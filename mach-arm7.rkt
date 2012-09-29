@@ -58,6 +58,14 @@
 	   `(use ,(preg 'r3))
 	   `(use ,(preg 'lr))
 	   `(move-word ,target ,(preg 'r0)))]
+    [`(wmod ,target ,s1 ,s2)
+     (list `(move-word ,(preg 'r0) ,s1)
+	   `(move-word ,(preg 'r1) ,s2)
+	   `(wmod ,(preg 'r1) ,(preg 'r0) ,(preg 'r1))
+	   `(use ,(preg 'r2))
+	   `(use ,(preg 'r3))
+	   `(use ,(preg 'lr))
+	   `(move-word ,target ,(preg 'r1)))]
     [`(ret ,target)
      (append (list `(move-word ,(preg 'r0) ,target))
 	     (map (lambda (loc name) `(move-word ,(preg name) ,loc)) saved-locs saved-regs)
@@ -292,6 +300,7 @@
     [`(wxor ,target ,s1 ,s2)			(nodata (*eor 'al 0 (xs target) (xs s1) (xs s2)))]
     [`(wnot ,target ,source)			(nodata (*mvn 'al 0 (xs target) (xs source)))]
     [`(wdiv ,(preg 'r0) ,(preg 'r0) ,(preg 'r1)) (nodata (*bl 'al (label-reference '__udivsi3)))]
+    [`(wmod ,(preg 'r1) ,(preg 'r0) ,(preg 'r1)) (nodata (*bl 'al (label-reference '__udivsi3)))]
     [`(compare ,cmpop ,target ,s1 ,s2)
      ;; Let wolog cmpop be <. Then we wish to compute s1 - s2 and have
      ;; the comparison be true if the result of subtraction is
