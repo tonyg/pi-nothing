@@ -1,8 +1,40 @@
 ;; -*- mode: scheme -*-
 
+(struct uart ((dr word)
+	      (rsr-ecr word)
+	      (reserved1 byte 16)
+	      (fr word)
+	      (reserved2 byte 4)
+	      (lpr word)
+	      (ibrd word)
+	      (fbrd word)
+	      (lcr-h word)
+	      (cr word)
+	      (ifls word)
+	      (imsc word)
+	      (ris word)
+	      (mis word)
+	      (icr word)
+	      (dmacr word)))
+
+(const uart0 #x101f1000)
+(const uart-flag-rx-fifo-empty #x10)
+(const uart-flag-tx-fifo-full #x20)
+
 (define (putc ch)
-  (! #x101f1000 ;; UART0
-     ch))
+  (while (and (? (+ uart0 uart-fr)) uart-flag-tx-fifo-full))
+  (! (+ uart0 uart-dr) ch))
+
+(define (poll-for-char)
+  (if (and (? (+ uart0 uart-fr)) uart-flag-rx-fifo-empty)
+      -1
+      (? (+ uart0 uart-dr))))
+
+(define (getc)
+  (let ((mutable ch -1))
+    (while (= ch -1)
+      (set! ch (poll-for-char)))
+    ch))
 
 (define (puts p)
   (let ((ch (?byte p)))
@@ -13,9 +45,8 @@
 
 (define (main)
   (puts (data #"Hello, world!\n\0"))
-  ;;(char-loop 0)
-  )
-
-#;(define (char-loop counter)
-  (putc (+ counter 65))
-  (char-loop (and 31 (+ counter 1))))
+  (while 1
+    (let ((ch (getc)))
+      (puts (data #"You typed: \0"))
+      (putc ch)
+      (putc 10))))
