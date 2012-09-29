@@ -1,4 +1,4 @@
 #!/bin/sh
 echo "Type (C-a x) to terminate qemu in -nographic mode"
 echo
-qemu-system-arm -M versatilepb -m 128M -nographic -kernel kernel.bin
+qemu-system-arm -M versatilepb -m 128M -nographic -kernel kernel.bin "$@"
