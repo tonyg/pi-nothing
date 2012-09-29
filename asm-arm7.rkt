@@ -210,20 +210,20 @@
    (else (bitwise-ior (arithmetic-shift 1 (reg-num (car reglist)))
 		      (reglist->bitmask (cdr reglist))))))
 
-(define (ldm-or-stm cc full? ascending? s writeback? load? rn reglist)
+(define (ldm-or-stm cc before? increment? s writeback? load? rn reglist)
   (imm32* (bitfield 4 (condition-code-num cc)
 		    3 4
-		    1 (bool->bit full?) ;; P bit
-		    1 (bool->bit ascending?) ;; U bit
+		    1 (bool->bit before?) ;; P bit
+		    1 (bool->bit increment?) ;; U bit
 		    1 (bool->bit s)
 		    1 (bool->bit writeback?)
 		    1 (bool->bit load?) ;; L bit
 		    4 (reg-num rn)
 		    16 (reglist->bitmask reglist))))
 
-;; PUSH and POP work with Full, Descending stacks
+;; PUSH and POP work with Full, Descending stacks: i.e., STMDB and LDMIA
 (define (*push cc reglist) (ldm-or-stm cc #t #f 0 #t #f 'sp reglist))
-(define (*pop  cc reglist) (ldm-or-stm cc #t #f 0 #t #t 'sp reglist))
+(define (*pop  cc reglist) (ldm-or-stm cc #f #t 0 #t #t 'sp reglist))
 
 (define (alu-op opcode cc s rd rn delta)
   (imm32* (bitfield 4 (condition-code-num cc)
