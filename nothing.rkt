@@ -81,7 +81,7 @@
 
     [(? symbol? varname)
      (store-result dest (cond [(lookup varname env) => binding-val]
-			      [else (error 'translate "Unbound variable ~a" varname)]))]
+			      [else (label varname)]))]
 
     [`(let ,bindings ,body ...)
      (define rib (map (lambda (b)
