@@ -204,7 +204,7 @@
   (flush-output)
   bs)
 
-(define (assemble inward-arg-count temp-count instrs)
+(define (assemble inward-arg-count temp-count leaf? instrs)
   (define temp-size (* temp-count  word-size-bytes))
   (define total-requirement (+ temp-size linkage-size))
   (define frame-size (round-up-to-nearest frame-alignment total-requirement))

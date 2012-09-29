@@ -5,12 +5,3 @@ correct; I commented it out because it was causing spurious saves of
 all savables in the (x (x (x))) example.
 
 try to figure out a way to use STM and LDM in ARM backend
-
-fix calling convention for ARM:
-  if a 0ary procedure tail-calls a 1ary procedure, it needs to make
-  sure the stack-pointer is 16-byte aligned like everywhere else does.
-  Currently it isn't doing that. If it does, then we probably need to
-  make the calling convention align the arguments being passed at the
-  *top* of the args region rather than the bottom. Or, make it the
-  callee's responsibility to align the stack pointer? Or ditch
-  alignment?
