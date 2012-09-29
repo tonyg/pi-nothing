@@ -4,9 +4,18 @@
   (! #x101f1000 ;; UART0
      ch))
 
-(define (main)
-  (char-loop 0))
+(define (puts p)
+  (let ((ch (?byte p)))
+    (if ch
+	(begin (putc ch)
+	       (puts (+ p 1)))
+	0)))
 
-(define (char-loop counter)
+(define (main)
+  (puts (data #"Hello, world!\n\0"))
+  ;;(char-loop 0)
+  )
+
+#;(define (char-loop counter)
   (putc (+ counter 65))
   (char-loop (and 31 (+ counter 1))))
