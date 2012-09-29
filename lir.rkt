@@ -65,7 +65,7 @@
   (match instr
     [`(move-word ,target ,source)	(values #t (set target) (set source))]
     [`(load ,target ,source ,_)		(values #t (set target) (set source))]
-    [`(store ,target ,source)		(values #f (set target) (set source))]
+    [`(store ,target ,source)		(values #f (set) (set target source))]
     [`(w+ ,target ,s1 ,s2)		(values #t (set target) (set s1 s2))]
     [`(w- ,target ,s1 ,s2)		(values #t (set target) (set s1 s2))]
     [`(w* ,target ,s1 ,s2)		(values #t (set target) (set s1 s2))]
