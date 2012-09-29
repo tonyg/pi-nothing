@@ -14,7 +14,7 @@
 (define %disassemble-block
   (if lib
       (get-ffi-obj "disassemble_block" lib (_fun _gcpointer _int _uint _int _int -> _void))
-      (lambda (bs len arch show-binary)
+      (lambda (bs len base arch show-binary)
 	(display "beaengine not available")
 	(newline))))
 
