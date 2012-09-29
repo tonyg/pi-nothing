@@ -147,7 +147,7 @@
     [`(/ ,rands ...) (op2 tail? dest env 'wdiv (void) rands)]
 
     [(or `(%) `(% ,_))
-     (error 'translate-exp "(-) needs two or more arguments")]
+     (error 'translate-exp "(%) needs two or more arguments")]
     [`(% ,rands ...) (op2 tail? dest env 'wmod (void) rands)]
 
     [`(<=s ,a ,b) (cmp2 dest env '<=s a b)]
