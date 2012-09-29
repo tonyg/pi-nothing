@@ -257,9 +257,11 @@
        (nodata (*str 'al real-source real-target))]
       [(@reg? real-source)
        (nodata (*ldr 'al real-target real-source))]
-      [(or (label-reference? real-source)
-	   (and (number? real-source)
-		(not (best-rotation-exists? real-source))))
+      [(and (number? real-source) (best-rotation-exists? real-source))
+       (nodata (*mov 'al 0 real-target real-source))]
+      [(and (number? real-source) (best-rotation-exists? (bitwise-not real-source)))
+       (nodata (*mvn 'al 0 real-target (bitwise-not real-source)))]
+      [(or (label-reference? real-source) (number? real-source))
        ;; Compare to the "load-word" instruction code slightly below. This is like x86 LEA.
        (indirect-immediate real-target
 			   real-source
