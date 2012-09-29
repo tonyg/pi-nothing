@@ -58,6 +58,15 @@
       (putn* i)
       (putc 48)))
 
+(define (putx n)
+  (let ((mutable shift 28))
+    (while (>=s shift 0)
+      (let ((digit (and 15 (>>u n shift))))
+	(putc (+ digit (if (>=u digit 10)
+			   55 ;; 65 - 10
+			   48)))
+	(set! shift (- shift 4))))))
+
 (define (newline)
   (putc 13)
   (putc 10))
@@ -65,6 +74,12 @@
 (define (main)
   (putn 0) (newline)
   (putn 12345) (newline)
+  (putn #x12345) (newline)
+  (newline)
+  (putx 0) (newline)
+  (putx 12345) (newline)
+  (putx #x12345) (newline)
+  (newline)
   (puts (data #"Hello, world!\n\0"))
   (while 1
     (let ((ch (getc)))

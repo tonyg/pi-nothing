@@ -77,6 +77,7 @@
     [`(wnot ,target ,source)		(values #t (set target) (set source))]
     [`(wdiv ,target ,s1 ,s2)		(values #t (set target) (set s1 s2))]
     [`(wmod ,target ,s1 ,s2)		(values #t (set target) (set s1 s2))]
+    [`(wshift ,_ ,target ,s1 ,s2)	(values #t (set target) (set s1 s2))]
     [`(compare ,_ ,target ,s1 ,s2)	(values #t (set target) (set s1 s2))]
 
     [`(use ,source)			(values #f (set) (set source))]
