@@ -66,6 +66,8 @@
 
 (te '() '(data #"Hello") '())
 
+(te '() '(outermost 1 (middle 2 (innermost 3) 4) 5) '())
+
 (te '() `(+ 1 2 3) '())
 (te '() `(let ((a (? 123))) (+ a a a)) '())
 
