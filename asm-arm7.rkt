@@ -167,8 +167,8 @@
 		1 0
 		4 (reg-num (@delta-reg d)))))
 
-;; Boolean Condition Register AddressMode -> MachineCode
-(define (ldr-or-str load? cc rt am)
+;; Boolean Boolean Condition Register AddressMode -> MachineCode
+(define (ldr-or-str load? byte? cc rt am)
   (define p (address-mode->p-bit am))
   (define w (address-mode->w-bit am))
   (define a (address-mode->address am))
@@ -179,15 +179,17 @@
 		    1 (bool->bit (@delta-reg? delta))
 		    1 (bool->bit p)
 		    1 (u-bit u)
-		    1 0
+		    1 (bool->bit byte?)
 		    1 (bool->bit w)
 		    1 (bool->bit load?)
 		    4 (reg-num (@reg-register a))
 		    4 (reg-num rt)
 		    12 (delta-field #f delta))))
 
-(define (*str cc rt am) (ldr-or-str #f cc rt am))
-(define (*ldr cc rt am) (ldr-or-str #t cc rt am))
+(define (*str cc rt am) (ldr-or-str #f #f cc rt am))
+(define (*ldr cc rt am) (ldr-or-str #t #f cc rt am))
+(define (*strb cc rt am) (ldr-or-str #f #t cc rt am))
+(define (*ldrb cc rt am) (ldr-or-str #t #t cc rt am))
 
 (define (alu-op opcode cc s rd rn delta)
   (imm32* (bitfield 4 (condition-code-num cc)
