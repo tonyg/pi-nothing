@@ -313,6 +313,8 @@
     [`(jmp-false ,(preg val) ,(label tag))
      (nodata (list (*cmp 'al val 0)
 		   (*b 'eq (label-reference tag))))]
+    [`(jmp-false ,(lit 0) ,(label tag))		(nodata (*b 'al (label-reference tag)))]
+    [`(jmp-false ,(lit _) ,(label tag))		(nodata '())]
     [`(jmp ,(label tag))			(nodata (*b 'al (label-reference tag)))]
     [`(ret ,(preg 'r0))				(nodata (*mov 'al 0 'pc 'lr))]
     [`(call ,(preg 'r0) ,(label tag) ,args)
