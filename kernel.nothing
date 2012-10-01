@@ -42,10 +42,9 @@
 
 (define (puts p)
   (let ((ch (?byte p)))
-    (if ch
-	(begin (putc ch)
-	       (puts (+ p 1)))
-	0)))
+    (when ch
+      (putc ch)
+      (puts (+ p 1)))))
 
 (define (putn* i)
   (if i

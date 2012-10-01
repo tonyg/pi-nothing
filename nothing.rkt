@@ -178,6 +178,9 @@
 	  (snip dest `(ret ,v)))]
 
     [`(when ,test ,body ...)
+     ;; TODO: decide what to do wrt putting a value into dest in the
+     ;; case that the test evaluates to false. At the moment it uses
+     ;; whatever junk is lying around (!)
      (define Ldone (fresh-label))
      (seq ([testv (translate-exp #f (fresh-reg) test env)])
 	  (match-define (snippet bi bd bv) (translate-exp tail? dest `(begin ,@body) env))
