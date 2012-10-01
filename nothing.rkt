@@ -173,6 +173,20 @@
      (seq ([v (translate-exp #f dest rand env)])
 	  (snip dest `(wnot ,dest ,dest)))]
 
+    [`(return ,exp)
+     (seq ([v (translate-exp #t dest exp env)])
+	  (snip dest `(ret ,v)))]
+
+    [`(when ,test ,body ...)
+     (define Ldone (fresh-label))
+     (seq ([testv (translate-exp #f (fresh-reg) test env)])
+	  (match-define (snippet bi bd bv) (translate-exp tail? dest `(begin ,@body) env))
+	  (snippet (append (list `(jmp-false ,testv ,Ldone))
+			   bi
+			   (list Ldone))
+		   bd
+		   dest))]
+
     [`(if ,test ,texp ,fexp)
      (define Lfalse (fresh-label))
      (define Ldone (fresh-label))
