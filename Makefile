@@ -4,7 +4,7 @@ else
 SHARED=-shared
 endif
 
-all: beaengine-wrapper.so
+all: beaengine-wrapper.so disarm/disarm-0.11
 
 beaengine: beaengine-sources.zip
 	mkdir $@
@@ -16,6 +16,9 @@ beaengine/dist: beaengine
 	(cd beaengine; make)
 	cp beaengine/sources/lib/*/*.a $@
 	cp -r beaengine/sources/include $@
+
+disarm/disarm-0.11:
+	make -C disarm
 
 %.so: %.c beaengine/dist
 	$(CC) -o $@ $(SHARED) -I beaengine/dist/include -Lbeaengine/dist $< -lBeaEngine_s_d
