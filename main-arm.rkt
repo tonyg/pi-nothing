@@ -65,6 +65,7 @@
   (match form
     [`(define (,proc ,argname ...)
 	,body ...)
+     (write `(compiling ,proc ...)) (newline)
      (define-values (code data) (compile-procedure md argname `(begin ,@body) global-env))
      (values (cons (label-anchor proc) code) data)]
     [`(struct ,_ ...)	(values '() '())]

@@ -33,4 +33,4 @@ clean:
 ###########################################################################
 
 kernel.bin: kernel.nothing *.rkt
-	racket main-arm.rkt
+	racket main-arm.rkt 2>&1 | tee kernel.log
