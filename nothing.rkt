@@ -122,12 +122,12 @@
 
     [`(! ,locexp ,valexp)
      (seq ([locv (translate-exp #f (fresh-reg) locexp env)]
-	   [valv (translate-exp #f dest valexp env)])
-	  (snip dest `(store-word ,locv ,dest)))]
+	   [valv (translate-exp #f (if (real-dest? dest) dest (fresh-reg)) valexp env)])
+	  (snip dest `(store-word ,locv ,valv)))]
     [`(!byte ,locexp ,valexp)
      (seq ([locv (translate-exp #f (fresh-reg) locexp env)]
-	   [valv (translate-exp #f dest valexp env)])
-	  (snip dest `(store-byte ,locv ,dest)))]
+	   [valv (translate-exp #f (if (real-dest? dest) dest (fresh-reg)) valexp env)])
+	  (snip dest `(store-byte ,locv ,valv)))]
 
     [`(+ ,rands ...) (op2 tail? dest env 'w+ 0 rands)]
     [`(* ,rands ...) (op2 tail? dest env 'w* 1 rands)]
