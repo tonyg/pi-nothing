@@ -141,7 +141,10 @@
 		    (pad-to code 4)
 		    blobs-rev))])))
 
-(let ((bs (compile-file "kernel.nothing")))
-  (with-output-to-file "kernel.bin"
-    (lambda () (write-bytes bs))
-    #:exists 'replace))
+(define (compile-and-link filename-base)
+  (let ((bs (compile-file (string-append filename-base".nothing"))))
+    (with-output-to-file (string-append filename-base".bin")
+      (lambda () (write-bytes bs))
+      #:exists 'replace)))
+
+(compile-and-link "kernel")
