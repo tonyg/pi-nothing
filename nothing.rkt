@@ -169,9 +169,15 @@
 	   [bv (translate-exp #f (fresh-reg) b env)])
 	  (snip dest `(wshift ,op ,dest ,av ,bv)))]
 
-    [`(not ,rand)
+    [`(~ ,rand)
      (seq ([v (translate-exp #f dest rand env)])
 	  (snip dest `(wnot ,dest ,dest)))]
+
+    [`(not ,rand)
+     (seq ([v (translate-exp #f dest rand env)])
+	  (snip dest
+		`(wnot ,dest ,dest)
+		`(wand ,dest ,dest ,(lit 1))))]
 
     [`(return ,exp)
      (seq ([v (translate-exp #t dest exp env)])
