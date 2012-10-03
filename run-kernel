@@ -1,4 +1,16 @@
 #!/bin/sh
 echo "Type (C-a x) to terminate qemu in -nographic mode"
 echo
-qemu-system-arm -M versatilepb -m 128M -nographic -usb -kernel kernel.bin "$@"
+qemu-system-arm \
+    -M versatilepb \
+    -m 128M \
+    -nographic \
+    \
+    -net user \
+    -net nic,model=rtl8139 \
+    \
+    -usb \
+    \
+    -kernel kernel.bin \
+    \
+    "$@"
