@@ -374,6 +374,8 @@
     [`(wor ,target ,s1 ,s2)			(nodata (*orr 'al 0 (xs target) (xs s1) (xs s2)))]
     [`(wxor ,target ,s1 ,s2)			(nodata (*eor 'al 0 (xs target) (xs s1) (xs s2)))]
     [`(wnot ,target ,source)			(nodata (*mvn 'al 0 (xs target) (xs source)))]
+    [`(wshift << ,(preg target) ,(preg s1) ,(lit n))
+     (nodata (*mov 'al 0 target (@shifted s1 n)))]
     [`(wshift >>u ,(preg target) ,(preg s1) ,(preg s2))
      (nodata (*mov 'al 0 target (@shifted s1 (@lsr s2))))]
     [`(compare ,cmpop ,target ,s1 ,s2)
