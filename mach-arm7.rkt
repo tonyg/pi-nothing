@@ -246,6 +246,11 @@
 		(define r (fresh-reg))
 		(list `(move-word ,r ,s1)
 		      `(,op ,target ,r ,s2))]
+	       [`(w* ,target ,s1 ,(? non-reg? s2))
+		;; ARM multiply instructions only work with two registers as sources.
+		(define r (fresh-reg))
+		(list `(move-word ,r ,s2)
+		      `(w* ,target ,s1 ,r))]
 	       [`(compare ,cmpop ,target ,(? lit? n) ,(? lit? m))
 		(list `(move-word ,target ,(lit (evaluate-cmpop cmpop (lit-val n) (lit-val m)))))]
 	       [`(compare ,cmpop ,target ,(? memory-location? n) ,(? memory-location? m))
