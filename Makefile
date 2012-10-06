@@ -4,7 +4,7 @@ else
 SHARED=-shared
 endif
 
-KERNEL=kernel
+KERNEL=rpi
 
 all: disassemblers compiled/main-arm_rkt.zo $(KERNEL).img
 

@@ -1,4 +1,7 @@
 beaengine-wrapper.so
 beaengine/
-kernel.bin
 scratch/
+compiled/
+
+kernel.img
+rpi.img
