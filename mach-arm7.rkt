@@ -179,11 +179,13 @@
 	     (list `(,op ,(preg 'r0) ,label ,(map mkarg (iota argcount))))
 	     (map (lambda (name) `(move-word ,(preg name) ,(junk))) killed-regs)
 	     (map (lambda (name) `(use ,(preg name))) killed-regs)
-	     (list`(move-word ,target ,(preg 'r0))))]
-    [`(,(and op (or 'store-word 'store-byte)) ,(? non-reg? target) ,source)
-     (define r (fresh-reg))
-     (list `(move-word ,r ,target)
-	   `(,op ,r ,source))]
+	     (list `(move-word ,target ,(preg 'r0))))]
+    [`(,(and op (or 'store-word 'store-byte)) ,target ,source)
+     (define rt (if (non-reg? target) (fresh-reg) target))
+     (define rs (if (non-reg? source) (fresh-reg) source))
+     (list `(move-word ,rt ,target)
+	   `(move-word ,rs ,source)
+	   `(,op ,rt ,rs))]
     [`(wshift ,op ,(? reg-or-preg? target) ,(lit n) ,(lit m))
      (list `(move-word ,target ,(lit (arithmetic-shift n m))))]
     [`(wshift ,op ,(? reg-or-preg? target) ,(lit n) ,shift-amount)
@@ -375,7 +377,15 @@
     [`(w+ ,target ,s1 ,s2)			(nodata (*add 'al 0 (xs target) (xs s1) (xs s2)))]
     [`(w- ,target ,s1 ,s2)			(nodata (*sub 'al 0 (xs target) (xs s1) (xs s2)))]
     [`(w* ,target ,s1 ,s2)			(nodata (*mul 'al 0 (xs target) (xs s1) (xs s2)))]
-    [`(wand ,target ,s1 ,s2)			(nodata (*and 'al 0 (xs target) (xs s1) (xs s2)))]
+    [`(wand ,target ,s1 ,s2)
+     (if (and (lit? s2)
+	      (not (best-rotation-exists? (lit-val s2)))
+	      (best-rotation-exists? (bitwise-and #xffffffff (bitwise-not (lit-val s2)))))
+	 (nodata (*bic 'al 0
+		       (xs target)
+		       (xs s1)
+		       (bitwise-and #xffffffff (bitwise-not (lit-val s2)))))
+	 (nodata (*and 'al 0 (xs target) (xs s1) (xs s2))))]
     [`(wor ,target ,s1 ,s2)			(nodata (*orr 'al 0 (xs target) (xs s1) (xs s2)))]
     [`(wxor ,target ,s1 ,s2)			(nodata (*eor 'al 0 (xs target) (xs s1) (xs s2)))]
     [`(wnot ,target ,source)			(nodata (*mvn 'al 0 (xs target) (xs source)))]
