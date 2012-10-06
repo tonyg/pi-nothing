@@ -184,6 +184,11 @@
      (define r (fresh-reg))
      (list `(move-word ,r ,target)
 	   `(,op ,r ,source))]
+    [`(wshift ,op ,(? reg-or-preg? target) ,(lit n) ,(lit m))
+     (list `(move-word ,target ,(lit (arithmetic-shift n m))))]
+    [`(wshift ,op ,(? reg-or-preg? target) ,(lit n) ,shift-amount)
+     (list `(move-word ,target ,(lit n))
+	   `(wshift ,op ,target ,target ,shift-amount))]
     [i
      (list i)]))
 
@@ -374,10 +379,12 @@
     [`(wor ,target ,s1 ,s2)			(nodata (*orr 'al 0 (xs target) (xs s1) (xs s2)))]
     [`(wxor ,target ,s1 ,s2)			(nodata (*eor 'al 0 (xs target) (xs s1) (xs s2)))]
     [`(wnot ,target ,source)			(nodata (*mvn 'al 0 (xs target) (xs source)))]
-    [`(wshift << ,(preg target) ,(preg s1) ,(lit n))
-     (nodata (*mov 'al 0 target (@shifted s1 n)))]
-    [`(wshift >>u ,(preg target) ,(preg s1) ,(preg s2))
-     (nodata (*mov 'al 0 target (@shifted s1 (@lsr s2))))]
+    [`(wshift ,op ,(preg target) ,(preg s1) ,s2)
+     (define shift-val (match s2 [(lit n) n] [(preg r) r]))
+     (nodata (*mov 'al 0 target (@shifted s1 (case op
+					       [(<<) shift-val]
+					       [(>>u) (@lsr shift-val)]
+					       [(>>s) (@asr shift-val)]))))]
     [`(compare ,cmpop ,target ,s1 ,s2)
      ;; Let wolog cmpop be <. Then we wish to compute s1 - s2 and have
      ;; the comparison be true if the result of subtraction is

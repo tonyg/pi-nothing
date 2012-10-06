@@ -165,7 +165,7 @@
     [`(or ,rands ...) (op2 tail? dest env 'wor 0 rands)]
     [`(xor ,rands ...) (op2 tail? dest env 'wxor 0 rands)]
     [`(,(and op (or '<< '>>s '>>u)) ,a ,b) 
-     (seq ([av (translate-exp #f dest a env)]
+     (seq ([av (translate-exp #f (fresh-reg) a env)]
 	   [bv (translate-exp #f (fresh-reg) b env)])
 	  (snip dest `(wshift ,op ,dest ,av ,bv)))]
 
