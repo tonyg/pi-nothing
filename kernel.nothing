@@ -1,7 +1,31 @@
 ;; -*- mode: scheme -*-
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(const %error-division-by-zero				#x00000002)
+(const %error-no-error					#x00000007)
+
+(const %error-bad-mailbox-channel			#x00000010)
+(const %error-bad-mailbox-pointer			#x00000011)
+(const %error-unexpected-mailbox-message		#x00000012)
+
+(const %error-framebuffer-mode-set-failed		#x00000020)
+
+(define (error code)
+  (pulse-bits-forever code))
+
+(define (error/argument code arg)
+  (while 1
+    (pulse-bits code)
+    (pulse-bits arg)
+    (long-delay)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 (define (division-by-zero a b)
-  (while 1))
+  (error %error-division-by-zero))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define (delay-countdown v)
   (let ((mutable n v))
@@ -13,6 +37,8 @@
 
 (define (long-delay)
   (delay-countdown #x600000))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (const gpio-base #x20200000)
 
@@ -35,6 +61,110 @@
 (define (pulse-bits-forever bitfield)
   (while 1 (pulse-bits bitfield)))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(const $alloc-pointer-addr #x00200000) ;; Heap starts at 2MB - i.e. above the stack
+
+(define (alloc! size)
+  ;; always returns a 16-byte aligned pointer
+  (let ((rounded-size (and #xfffffff0 (+ size 15)))
+	(result (? $alloc-pointer-addr)))
+    (! $alloc-pointer-addr (+ result rounded-size))
+    result))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(const %mailbox-base #x2000b880)
+
+(const %mailbox-reg-read #x00)
+(const %mailbox-reg-peek #x10)
+(const %mailbox-reg-sender #x14)
+(const %mailbox-reg-status #x18)
+(const %mailbox-reg-config #x1c)
+(const %mailbox-reg-write #x20)
+
+(const %channel-power-management 0)
+(const %channel-framebuffer 1)
+(const %channel-virtual-uart 2)
+(const %channel-vchiq 3)
+(const %channel-leds 4)
+(const %channel-buttons 5)
+(const %channel-touchscreen 6)
+;; 7 unused?
+;; 8: Property tags (ARM -> VC)
+;; 9: Property tags (VC -> ARM) 
+
+(define (mailbox-status)
+  (? (+ %mailbox-base %mailbox-reg-status)))
+
+(define (mailbox-send! mailbox-channel message-pointer)
+  ;; TODO: what kinds of memory barriers are needed here and in
+  ;; mailbox-recv? See http://elinux.org/RPi_Framebuffer.
+  (when (>=u mailbox-channel 16) (error %error-bad-mailbox-channel))
+  (when (and message-pointer 15) (error %error-bad-mailbox-pointer))
+  (while (and (mailbox-status) (<< 1 31)))
+  (! (+ %mailbox-base %mailbox-reg-write)
+     (or mailbox-channel message-pointer)))
+
+(define (mailbox-recv mailbox-channel)
+  (when (>=u mailbox-channel 16) (error %error-bad-mailbox-channel))
+  (while (and (mailbox-status) (<< 1 30)))
+  (let ((pointer-and-channel (? (+ %mailbox-base %mailbox-reg-read))))
+    (when (not (= (and pointer-and-channel 15) mailbox-channel))
+      (error %error-unexpected-mailbox-message))
+    (and pointer-and-channel #xfffffff0)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(struct framebuffer-description ((width word)
+				 (height word)
+				 (virtual-width word)
+				 (virtual-height word)
+				 (pitch word) ;; set by GPU
+				 (depth word) ;; bits per pixel
+				 (x-offset word)
+				 (y-offset word)
+				 (pointer word) ;; set by GPU
+				 (size word))) ;; set by GPU
+
+(define (pointer->gpu-pointer v)
+  (or #x40000000 v))
+
+(define (gpu-pointer->pointer v)
+  (and #x3fffffff v))
+
+(define (initialize-framebuffer)
+  (let ((fbinfo (alloc! sizeof-framebuffer-description)))
+    (! (+ fbinfo framebuffer-description-width) 1024)
+    (! (+ fbinfo framebuffer-description-height) 768)
+    (! (+ fbinfo framebuffer-description-virtual-width) 1024)
+    (! (+ fbinfo framebuffer-description-virtual-height) 768)
+    (! (+ fbinfo framebuffer-description-pitch) 0)
+    (! (+ fbinfo framebuffer-description-depth) 32)
+    (! (+ fbinfo framebuffer-description-x-offset) 0)
+    (! (+ fbinfo framebuffer-description-y-offset) 0)
+    (! (+ fbinfo framebuffer-description-pointer) 0)
+    (! (+ fbinfo framebuffer-description-size) 0)
+    (mailbox-send! %channel-framebuffer (pointer->gpu-pointer fbinfo))
+    (let ((result (mailbox-recv %channel-framebuffer)))
+      (when result (error/argument %error-framebuffer-mode-set-failed result))
+      (! (+ fbinfo framebuffer-description-pointer)
+	 (gpu-pointer->pointer (? (+ fbinfo framebuffer-description-pointer))))
+      fbinfo)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 (define (main)
   (enable-led)
-  (pulse-bits-forever #b1011))
+  (let ((fbinfo (initialize-framebuffer)))
+    (let ((b (? (+ fbinfo framebuffer-description-pointer)))
+	  (limit (? (+ fbinfo framebuffer-description-size))))
+      (let ((mutable i 0)
+	    (mutable j 0))
+	(while 1
+	  (! (+ b j) i)
+	  (set! i (+ i 1))
+	  (set! j (+ j 1))
+	  (when (>=u j limit) (set! j 0)))))
+    (error/argument %error-no-error (? (+ fbinfo framebuffer-description-pointer)))
+    (pulse-bits-forever #b101)))
