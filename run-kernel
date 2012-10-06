@@ -11,6 +11,6 @@ qemu-system-arm \
     \
     -usb \
     \
-    -kernel kernel.img \
+    -kernel versatilepb.img \
     \
     "$@"

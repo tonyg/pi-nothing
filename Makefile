@@ -42,8 +42,8 @@ clean-racket:
 clean-kernel:
 	rm -f $(KERNEL).img $(KERNEL).log
 
-%.img: %.nothing *.rkt
-	racket main-arm.rkt --start '#x8000' $* 2>&1 | tee $*.log
+%.img: %.nothing %.startaddr *.rkt
+	racket main-arm.rkt --start $$(cat $*.startaddr) $* 2>&1 | tee $*.log
 
 compiled/main-arm_rkt.zo: *.rkt
 	raco make main-arm.rkt
