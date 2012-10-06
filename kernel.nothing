@@ -21,20 +21,20 @@
 (define (set-led! state)
   (! (+ gpio-base (if state 40 28)) (<< 1 16)))
 
-(define (pulse-bits-forever bitfield bit-count)
-  (while 1
-    (let ((mutable index 0))
-      (while (<u index bit-count)
+(define (pulse-bits bitfield)
+  (if bitfield
+      (let ((bit (and bitfield 1)))
+	(pulse-bits (>>u bitfield 1))
 	(set-led! 1)
-	(if (and bitfield (<< 1 (- bit-count index 1)))
-	    (long-delay)
-	    (short-delay))
+	(if bit (long-delay) (short-delay))
 	(set-led! 0)
-	(short-delay)
-	(set! index (+ index 1)))
-      (set-led! 0)
-      (long-delay))))
+	(short-delay))
+      (begin (set-led! 0)
+	     (long-delay))))
+
+(define (pulse-bits-forever bitfield)
+  (while 1 (pulse-bits bitfield)))
 
 (define (main)
   (enable-led)
-  (pulse-bits-forever #b1011 4))
+  (pulse-bits-forever #b1011))
