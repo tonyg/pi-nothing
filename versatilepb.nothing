@@ -1,0 +1,232 @@
+;; -*- mode: scheme -*-
+
+(struct uart ((dr word)
+	      (rsr-ecr word)
+	      (reserved1 byte 16)
+	      (fr word)
+	      (reserved2 byte 4)
+	      (lpr word)
+	      (ibrd word)
+	      (fbrd word)
+	      (lcr-h word)
+	      (cr word)
+	      (ifls word)
+	      (imsc word)
+	      (ris word)
+	      (mis word)
+	      (icr word)
+	      (dmacr word)))
+
+(const uart0 #x101f1000)
+(const uart-flag-rx-fifo-empty #x10)
+(const uart-flag-tx-fifo-full #x20)
+
+(define (division-by-zero a b)
+  (puts (data #"Division by zero\0"))
+  (while 1))
+
+(define (putc ch)
+  (while (and (? (+ uart0 uart-fr)) uart-flag-tx-fifo-full))
+  (! (+ uart0 uart-dr) ch))
+
+(define (poll-for-char)
+  (if (and (? (+ uart0 uart-fr)) uart-flag-rx-fifo-empty)
+      -1
+      (? (+ uart0 uart-dr))))
+
+(define (getc)
+  (let ((mutable ch -1))
+    (while (= ch -1)
+      (set! ch (poll-for-char)))
+    ch))
+
+(define (puts p)
+  (let ((ch (?byte p)))
+    (when ch
+      (putc ch)
+      (puts (+ p 1)))))
+
+(define (putn* i)
+  (if i
+      (begin (putn* (/ i 10))
+	     (putc (+ (% i 10) 48)))
+      0))
+
+(define (putn i)
+  (if i
+      (putn* i)
+      (putc 48)))
+
+(define (putx n)
+  (let ((mutable shift 28))
+    (while (>=s shift 0)
+      (let ((digit (and 15 (>>u n shift))))
+	(putc (+ digit (if (>=u digit 10)
+			   55 ;; 65 - 10
+			   48)))
+	(set! shift (- shift 4))))))
+
+(define (newline)
+  (putc 13)
+  (putc 10))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(const N_PCI_BASE_ADDRESS_REGISTERS 6)
+
+(const PCI_HEADER_TYPE_GENERAL #x00)
+(const PCI_HEADER_TYPE_BRIDGE #x01)
+(const PCI_HEADER_TYPE_CARDBUS #x02)
+
+(const PCI_HEADER_TYPE_MULTI_FUNCTION_MASK #x80)
+(const PCI_HEADER_TYPE_MASK #x7f)
+
+(const PCI_CLASS_LEGACY #x00) ;; Device was built prior definition of the class code field
+(const PCI_CLASS_STORAGE #x01) ;; Mass Storage Controller
+(const PCI_CLASS_NETWORK #x02) ;; Network Controller
+(const PCI_CLASS_DISPLAY #x03) ;; Display Controller
+(const PCI_CLASS_MULTIMEDIA #x04) ;; Multimedia Controller
+(const PCI_CLASS_MEMORY #x05) ;; Memory Controller
+(const PCI_CLASS_BRIDGE #x06) ;; Bridge Device
+(const PCI_CLASS_SIMPLE_COMM #x07) ;; Simple Communication Controllers
+(const PCI_CLASS_BASE_SYSTEM_PERIPHERAL #x08) ;; Base System Peripherals
+(const PCI_CLASS_INPUT #x09) ;; Input Devices
+(const PCI_CLASS_DOCK #x0A) ;; Docking Stations
+(const PCI_CLASS_PROCESSOR #x0B) ;; Processors
+(const PCI_CLASS_SERIAL_BUS #x0C) ;; Serial Bus Controllers
+(const PCI_CLASS_WIRELESS #x0D) ;; Wireless Controllers
+(const PCI_CLASS_INTELLIGENT_IO #x0E) ;; Intelligent I/O Controllers
+(const PCI_CLASS_SATELLITE_COMM #x0F) ;; Satellite Communication Controllers
+(const PCI_CLASS_CRYPTO #x10) ;; Encryption/Decryption Controllers
+(const PCI_CLASS_DASP #x11) ;; Data Acquisition and Signal Processing Controllers
+;; others reserved
+(const PCI_CLASS_MISC #xFF) ;; Device does not fit any defined class.
+
+;; N.B.: This lines up with struct pci-device below!
+(const PCI_REGISTER_VENDOR_ID 0)
+(const PCI_REGISTER_DEVICE_ID 2)
+(const PCI_REGISTER_COMMAND 4)
+(const PCI_REGISTER_STATUS 6)
+(const PCI_REGISTER_REVISION_ID 8)
+(const PCI_REGISTER_PROG_IF 9)
+(const PCI_REGISTER_SUBCLASS 10)
+(const PCI_REGISTER_CLASS_CODE 11)
+(const PCI_REGISTER_CACHE_LINE_SIZE 12)
+(const PCI_REGISTER_LATENCY_TIMER 13)
+(const PCI_REGISTER_HEADER_TYPE 14)
+(const PCI_REGISTER_BIST 15)
+(const PCI_REGISTER_BAR0 16)
+(const PCI_REGISTER_BAR1 20)
+(const PCI_REGISTER_BAR2 24)
+(const PCI_REGISTER_BAR3 28)
+(const PCI_REGISTER_BAR4 32)
+(const PCI_REGISTER_BAR5 36)
+(const PCI_REGISTER_CARDBUS_CIS_POINTER 40)
+(const PCI_REGISTER_SUBSYSTEM_VENDOR_ID 44)
+(const PCI_REGISTER_SUBSYSTEM_ID 46)
+(const PCI_REGISTER_EXPANSION_ROM_BASE_ADDRESS 48)
+(const PCI_REGISTER_CAPABILITIES_POINTER 52)
+(const PCI_REGISTER_INTERRUPT_LINE 60)
+(const PCI_REGISTER_INTERRUPT_PIN 61)
+(const PCI_REGISTER_MIN_GRANT 62)
+(const PCI_REGISTER_MAX_LATENCY 63)
+
+(const PCI_COMMAND_IO_SPACE #x0001)
+(const PCI_COMMAND_MEMORY_SPACE #x0002)
+(const PCI_COMMAND_BUS_MASTER #x0004)
+(const PCI_COMMAND_SPECIAL_CYCLES #x0008)
+(const PCI_COMMAND_MEMORY_WRITE_AND_INVALIDATE_ENABLE #x0010)
+(const PCI_COMMAND_VGA_PALETTE_SNOOP #x0020)
+(const PCI_COMMAND_PARITY_ERROR_RESPONSE #x0040)
+(const PCI_COMMAND_SERR_ENABLE #x0100)
+(const PCI_COMMAND_FAST_BACKTOBACK_ENABLE #x0200)
+(const PCI_COMMAND_INTERRUPT_DISABLE #x0400)
+
+(const PCI_STATUS_INTERRUPT #x0008)
+(const PCI_STATUS_CAPABILITIES_LIST #x0010)
+(const PCI_STATUS_66_MHZ_CAPABLE #x0020)
+(const PCI_STATUS_FAST_BACKTOBACK_CAPABLE #x0080)
+(const PCI_STATUS_MASTER_DATA_PARITY_ERROR #x0100)
+(const PCI_STATUS_DEVSEL_MASK #x0600)
+(const PCI_STATUS_DEVSEL_FAST #x0000)
+(const PCI_STATUS_DEVSEL_MEDIUM #x0200)
+(const PCI_STATUS_DEVSEL_SLOW #x0400)
+(const PCI_STATUS_SIGNALED_TARGET_ABORT #x0800)
+(const PCI_STATUS_RECEIVED_TARGET_ABORT #x1000)
+(const PCI_STATUS_RECEIVED_MASTER_ABORT #x2000)
+(const PCI_STATUS_SIGNALED_SYSTEM_ERROR #x4000)
+(const PCI_STATUS_DETECTED_PARITY_ERROR #x8000)
+
+(struct pci-device ((vendor-id word) ;; vendor ID in low 16 bits, device ID in high 16 bits
+		    (status-command word)
+		    (class-code-rev-id word)
+		    (bist word)
+		    (bars word 6) ;; TODO: would be nice to reuse N_PCI_BASE_ADDRESS_REGISTERS here
+		    (cardbus-cis-pointer word)
+		    (subsystem-id word) ;; vendor ID in low 16 bits, subsystem ID proper in high
+		    (expansion-rom-base word)
+		    (unused word)
+		    (reserved word)
+		    (max-lat-min-gnt-interrupt-pin-interrupt-line word)))
+
+(define (?pci slot offset)
+  (? (+ #x42000000 (<< slot 11) offset)))
+
+(define (!pci slot offset value)
+  (! (+ #x42000000 (<< slot 11) offset) value))
+
+;; TODO: ARM emitter can't cope with such a large constant right now,
+;; which is why this is a subroutine. Gross!
+(define (self-id) #x030010ee) ;; Vendor/device for PB926EJ-S
+
+(define (find-self-slot)
+  ;; http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.dui0224i/Cacdijji.html
+  (let ((mutable i 11))
+    (while (<u i 32)
+      (when (= (? (+ #x41000000 (<< i 11))) (self-id))
+	(return i))
+      (set! i (+ i 1)))))
+
+(define (configure-pci-slot slot)
+  (let ((vendor-id (?pci slot pci-device-vendor-id)))
+    (when (not (= vendor-id -1))
+      (puts (data #"Slot number \0")) (putn slot) (putc 32) (putx vendor-id) (newline)
+      (puts (data #"Class/Rev \0")) (putx (?pci slot pci-device-class-code-rev-id)) (newline)
+      (let ((mutable bar-num 0))
+	(while (<u bar-num N_PCI_BASE_ADDRESS_REGISTERS)
+	  (puts (data #"BAR \0")) (putn bar-num) (putc 32)
+	  (putx (?pci slot (+ pci-device-bars (<< bar-num 4))))
+	  (newline)
+	  (set! bar-num (+ bar-num 1))))
+      )))
+
+(define (configure-pci)
+  ;; http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.dui0224i/Cacdijji.html
+  (if (and 1 (? #x10000044))
+      (let ((self-slot (find-self-slot)))
+	(puts (data #"PCI configuration\n\n\0"))
+	(puts (data #"Self-slot: \0")) (putn self-slot) (newline)
+	(! #x1000100c self-slot) ;; set PCI_SELFID register
+	;; TODO: should the following bus master config happen at
+	;; #x41000000 instead of #x42000000?
+	(!pci self-slot pci-device-status-command
+	      (or (?pci self-slot pci-device-status-command)
+		  PCI_COMMAND_BUS_MASTER)) ;; "set bit 2"
+	;; Now scan the bus
+	(let ((mutable i 11))
+	  (while (<u i 32)
+	    (configure-pci-slot i)
+	    (set! i (+ i 1)))))
+      (puts (data #"PCI not present on board\n\0"))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(define (main)
+  (configure-pci)
+  (newline)
+  (puts (data #"Hello, world!\n\0"))
+  (while 1
+    (let ((ch (getc)))
+      (puts (data #"You typed: \0"))
+      (putc ch)
+      (newline))))
