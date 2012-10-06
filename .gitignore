@@ -3,5 +3,5 @@ beaengine/
 scratch/
 compiled/
 
-kernel.img
-rpi.img
+*.img
+*.log
