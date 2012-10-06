@@ -17,11 +17,13 @@
 
 (define md machine-arm7)
 
-(define start-addr #x00010000)
+(define start-addr (make-parameter #x00010000))
+(define stack-origin (make-parameter #x00100000))
+(define output-file (make-parameter #f))
 
 (define (startup-code)
   (list (*mov 'al 0 'lr 0)
-	(*mov 'al 0 'sp #x00100000)
+	(*mov 'al 0 'sp (stack-origin))
 	(*bl 'al (label-reference 'main))
 	(*b 'al 0) ;; loop forever
 	))
@@ -78,18 +80,18 @@
 			   (__udivsi3-code)
 			   blobs))
   (pretty-print `(all-blobs ,all-blobs))
-  (define-values (linked0 relocs link-map) (link all-blobs start-addr))
+  (define-values (linked0 relocs link-map) (link all-blobs (start-addr)))
   (when (not (null? relocs))
     (error 'link-and-emit "Unresolved relocations: ~v" relocs))
   (define linked (list->bytes linked0))
-  (dump-bytes! linked #:base start-addr) (flush-output)
+  (dump-bytes! linked #:base (start-addr)) (flush-output)
   (for-each (match-lambda [(cons anchor addr)
 			   (write `(,(label-anchor-name anchor) -> ,(number->string addr 16)))
 			   (newline)])
 	    link-map)
   (disassemble-bytes! linked
 		      #:arch (machine-description-architecture md)
-		      #:base start-addr)
+		      #:base (start-addr))
   linked)
 
 (define (pad-to bs multiple)
@@ -143,8 +145,23 @@
 
 (define (compile-and-link filename-base)
   (let ((bs (compile-file (string-append filename-base".nothing"))))
-    (with-output-to-file (string-append filename-base".bin")
+    (with-output-to-file (or (output-file) (string-append filename-base".img"))
       (lambda () (write-bytes bs))
       #:exists 'replace)))
 
-(compile-and-link "kernel")
+(require racket/cmdline)
+(compile-and-link
+ (command-line
+  #:program "main-arm.rkt"
+  #:once-each
+  [("-o" "--output") f
+   "Set output filename (default: INPUT.img)"
+   (output-file f)]
+  ["--start" addr-str
+   "Set start address"
+   (start-addr (string->number addr-str))]
+  ["--stack" addr-str
+   "Set stack origin"
+   (stack-origin (string->number addr-str))]
+  #:args (base-filename)
+  base-filename))

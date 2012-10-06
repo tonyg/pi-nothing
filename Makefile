@@ -4,7 +4,11 @@ else
 SHARED=-shared
 endif
 
-all: beaengine-wrapper.so disarm/disarm-0.11
+KERNEL=kernel
+
+all: disassemblers compiled/main-arm_rkt.zo $(KERNEL).img
+
+disassemblers: beaengine-wrapper.so disarm/disarm-0.11
 
 beaengine: beaengine-sources.zip
 	mkdir $@
@@ -26,11 +30,20 @@ disarm/disarm-0.11:
 %: %.c beaengine/dist
 	$(CC) -o $@ -I beaengine/dist/include -Lbeaengine/dist $< -lBeaEngine_s_d
 
-clean:
+clean: clean-disassemblers clean-racket clean-kernel
+
+clean-disassemblers:
 	rm -rf beaengine
 	rm -f beaengine-wrapper.so
 
-###########################################################################
+clean-racket:
+	rm -rf compiled/
 
-kernel.bin: kernel.nothing *.rkt
-	racket main-arm.rkt 2>&1 | tee kernel.log
+clean-kernel:
+	rm -f $(KERNEL).img $(KERNEL).log
+
+%.img: %.nothing *.rkt
+	racket main-arm.rkt --start '#x8000' $* 2>&1 | tee $*.log
+
+compiled/main-arm_rkt.zo: *.rkt
+	raco make main-arm.rkt
