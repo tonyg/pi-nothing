@@ -231,7 +231,7 @@
 	    `(move-word ,r2 ,s2)
 	    (make-instr target target r2))]))
   (append-map (match-lambda
-	       [(and i `(move-word ,(? memory-location? n) ,(? memory-location? m)))
+	       [(and i `(move-word ,(? memory-location? n) ,(? non-reg? m)))
 		(if (equal? n m)
 		    (list i) ;; it'll be eliminated later
 		    (let ((r (fresh-reg)))
