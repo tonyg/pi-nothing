@@ -1,7 +1,7 @@
 ifeq ($(shell uname -s),Darwin)
 SHARED=-dynamiclib
 else
-SHARED=-shared
+SHARED=-fPIC -shared
 endif
 
 KERNEL=kernel
@@ -16,7 +16,7 @@ beaengine: beaengine-sources.zip
 
 beaengine/dist: beaengine
 	mkdir $@
-	(cd beaengine; cmake sources)
+	(cd beaengine; CC="gcc -fPIC" cmake sources)
 	(cd beaengine; make)
 	cp beaengine/sources/lib/*/*.a $@
 	cp -r beaengine/sources/include $@
