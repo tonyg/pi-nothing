@@ -2,11 +2,16 @@
 
 ## Quickstart
 
-    $ git clone git@vapour.eighty-twenty.org:4-move.git
-    $ cd 4-move/nothingc
-    $ make -C disarm
-    $ racket main-arm.rkt
-    $ ./run-kernel 
+    $ git clone git://github.com/tonyg/pi-nothing.git
+    $ make
+    $ cp kernel.img /PATH/TO/YOUR/RASPBERRY/PI/SDCARD
+
+Boot the Raspberry Pi.
+
+Alternatively,
+
+    $ make versatilepb.img
+    $ ./run-kernel
 
 ## Details
 
@@ -16,11 +21,17 @@ McCaughan:
     $ make -C disarm
 
 This command compiles the kernel source from `kernel.nothing` into
-`kernel.bin`:
+`kernel.img`:
 
-    $ racket main-arm.rkt
+    $ racket main-arm.rkt --start $(cat kernel.startaddr) kernel
 
-This command fires up `qemu-system-arm` with `kernel.bin`:
+## Using qemu-system-arm instead of the Raspberry Pi
+
+This command compiles `versatilepb.nothing` into `versatilepb.img`:
+
+    $ racket main-arm.rkt --start $(cat versatilepb.startaddr) versatilepb
+
+This command fires up `qemu-system-arm` with `versatilepb.img`:
 
     $ ./run-kernel 
 
@@ -29,5 +40,5 @@ the kernel via the emulated board's serial UART. Type characters at
 it, and it will echo them. When you get bored of this, press `C-a x`
 to quit `qemu`.
 
-Note that `kernel.nothing` *polls* the UART for input at present, so
-`qemu` will take 100% of your CPU while it's running!
+Note that `versatilepb.nothing` *polls* the UART for input at present,
+so `qemu` will take 100% of your CPU while it's running!
