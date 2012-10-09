@@ -143,8 +143,8 @@
 (const %channel-buttons 5)
 (const %channel-touchscreen 6)
 ;; 7 unused?
-;; 8: Property tags (ARM -> VC)
-;; 9: Property tags (VC -> ARM) 
+(const %channel-properties-arm->vc 8)
+(const %channel-properties-vc->arm 9)
 
 (define (mailbox-status)
   (? (+ %mailbox-base %mailbox-reg-status)))
@@ -165,6 +165,68 @@
     (when (not (= (and pointer-and-channel 15) mailbox-channel))
       (error %error-unexpected-mailbox-message))
     (and pointer-and-channel #xfffffff0)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Mailbox property interface
+;; https://github.com/raspberrypi/firmware/wiki/Mailbox-property-interface
+
+;; Property buffer must be a multiple of 32 bits, i.e. a whole number of words.
+;; Each tag needs to have enough internal sub-buffer space for its reply.
+
+(struct property-buffer-header ((size word) ;; in bytes; includes this header
+				(opcode word)
+				;; Sequence of tags/values follows,
+				;; terminated by %property-tag-end and
+				;; padding to 4-byte alignment.
+				))
+
+(const %property-buffer-op-request #x00000000)
+(const %property-buffer-op-response-ok #x80000000)
+(const %property-buffer-op-response-error #x80000001) ;; "error parsing request buffer"
+
+(struct property-buffer-tag ((id word)
+			     (buffer-size word) ;; in bytes; EXCLUDES this header
+			     (value-length word) ;; MSB 0=req, 1=resp; 31 bits value length in bytes
+			     ;; Value buffer follows, buffer-size bytes.
+			     ))
+
+(const %property-tag-end #x00000000)
+(const %property-tag-get-arm-memory #x00010005)
+(const %property-tag-get-vc-memory #x00010006)
+
+(struct property-memory-info ((base word)
+			      (size word))) ;; in bytes
+
+(define (get-*-memory con tag)
+  (let ((*saved* (*save-alloc-state*)))
+    (let ((buflen (round-up-to-4 (+ sizeof-property-buffer-header
+				    sizeof-property-buffer-tag
+				    8 ;; for response buffer
+				    4)))) ;; for end tag
+      (let ((buf (alloc! buflen)))
+	(let ((tag-start (+ buf sizeof-property-buffer-header))
+	      (value-start (+ buf sizeof-property-buffer-header sizeof-property-buffer-tag)))
+	(! (+ buf property-buffer-header-size) buflen)
+	(! (+ buf property-buffer-header-opcode) %property-buffer-op-request)
+	(! (+ tag-start property-buffer-tag-id) tag)
+	(! (+ tag-start property-buffer-tag-buffer-size) 8)
+	(! (+ tag-start property-buffer-tag-value-length) 0)
+	(! (+ value-start 8) %property-tag-end)
+	(mailbox-send! %channel-properties-arm->vc buf)
+	(let ((reply (mailbox-recv %channel-properties-arm->vc)))
+	  ;; The reply seems to be the same as the buffer pointer we gave.
+	  (when (not (= reply buf))
+	    (console-puts con (data #"(Weird, get-*-memory reply \0"))
+	    (console-putx con reply)
+	    (console-puts con (data #" isn't buf \0"))
+	    (console-putx con buf)
+	    (console-puts con (data #")\n\0"))))
+	(let ((result (? (+ value-start property-memory-info-size))))
+	  (*restore-alloc-state* *saved*)
+	  result))))))
+
+(define (get-arm-memory con) (get-*-memory con %property-tag-get-arm-memory))
+(define (get-vc-memory con) (get-*-memory con %property-tag-get-vc-memory))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -289,6 +351,12 @@
       (console-puts con (data #"Welcome to MINOS for Raspberry Pi\n\0"))
       (console-puts con
        (data #"Copyright (C) 2012 Tony Garnock-Jones <tonygarnockjones@gmail.com>\n\0"))
+      (console-puts con (data #"ARM memory: \0"))
+      (console-putn con (get-arm-memory con))
+      (console-newline con)
+      (console-puts con (data #"VC memory:  \0"))
+      (console-putn con (get-vc-memory con))
+      (console-newline con)
       (error %error-no-error))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
