@@ -105,9 +105,21 @@
 
 (const $alloc-pointer-addr #x00200000) ;; Heap starts at 2MB - i.e. above the stack
 
+(define (init-alloc!)
+  (! $alloc-pointer-addr (+ $alloc-pointer-addr 16))) ;; can't use 4, is not 16-aligned
+
+(define (*save-alloc-state*)
+  (? $alloc-pointer-addr))
+
+(define (*restore-alloc-state* saved-state)
+  (! $alloc-pointer-addr saved-state))
+
+(define (round-up-to-4 x) (and #xfffffffc (+ x 3)))
+(define (round-up-to-16 x) (and #xfffffff0 (+ x 15)))
+
 (define (alloc! size)
   ;; always returns a 16-byte aligned pointer
-  (let ((rounded-size (and #xfffffff0 (+ size 15)))
+  (let ((rounded-size (round-up-to-16 size))
 	(result (? $alloc-pointer-addr)))
     (! $alloc-pointer-addr (+ result rounded-size))
     result))
@@ -248,6 +260,7 @@
 
 (define (main)
   (enable-led)
+  (init-alloc!)
   (let ((fbinfo (initialize-framebuffer)))
     (let ((con (make-console fbinfo)))
       (console-puts con (data #"Welcome to MINOS for Raspberry Pi\n\0"))
