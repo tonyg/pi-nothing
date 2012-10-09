@@ -66,10 +66,10 @@
 
 (const gpio-base #x20200000)
 
-(define (enable-led) (! (+ gpio-base 4) (<< 1 18)))
+(define (enable-led) (! (+ gpio-base 4) (<< 1 18))) ;; TODO: read-modify-write
 
 (define (set-led! state)
-  (! (+ gpio-base (if state 40 28)) (<< 1 16)))
+  (! (+ gpio-base (if state 40 28)) (<< 1 16))) ;; TODO: read-modify-write?
 
 (define (pulse-bits bitfield)
   (if bitfield
