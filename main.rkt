@@ -37,8 +37,8 @@
 (require "mach-x86_64.rkt")
 
 ;;(define te-machine machine-x86_64)
-(define te-machine machine-i386)
-;;(define te-machine machine-arm7)
+;;(define te-machine machine-i386)
+(define te-machine machine-arm7)
 
 (define (te args exp env)
   (display "===========================================================================")
@@ -121,6 +121,18 @@
     `((fib ,(label 'FIB))))
 
 (te '() `(x (x (x))) `((x ,(label 'X))))
+
+;;---------------------------------------------------------------------------
+;; TODO: ARM calling convention is broken for these examples.
+(te '(a) `(x a) `((x ,(label 'X))))
+(te '(a) `(x a a a) `((x ,(label 'X))))
+(te '(a) `(x a a a a a) `((x ,(label 'X))))
+(te '(a b c d e) `(x e e e e e e e e e e) `((x ,(label 'X))))
+(te '(a) `(begin (x a) 0) `((x ,(label 'X))))
+(te '(a) `(begin (x a a a) 0) `((x ,(label 'X))))
+(te '(a) `(begin (x a a a a a) 0) `((x ,(label 'X))))
+(te '(a b c d e) `(begin (x e e e e e e e e e e) 0) `((x ,(label 'X))))
+;;---------------------------------------------------------------------------
 
 (te '(cx cy)
     '(let ((mutable zx 0)
