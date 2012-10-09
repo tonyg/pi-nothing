@@ -64,12 +64,28 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(const gpio-base #x20200000)
+(const %gpio-base #x20200000)
+(const %gpio-function-select-0 #x0000) ;; GPIO pins 0-9
+(const %gpio-function-select-1 #x0004) ;; GPIO pins 10-19
+(const %gpio-pin-output-clear-0 #x0028) ;; GPIO pins 0-31
+(const %gpio-pin-output-clear-1 #x002c) ;; GPIO pins 32-53
+(const %gpio-pin-output-set-0 #x001c) ;; GPIO pins 0-31
+(const %gpio-pin-output-set-1 #x0020) ;; GPIO pins 32-53
 
-(define (enable-led) (! (+ gpio-base 4) (<< 1 18))) ;; TODO: read-modify-write
+(const %gpio-pin-control-mask 7) ;; 3 bits
+(const %gpio-pin-control-input 0) ;; pin is an input
+(const %gpio-pin-control-output 1) ;; pin is an output
+;; other values exist
+
+(define (enable-led)
+  (let ((reg (+ %gpio-base %gpio-function-select-1))) ;; pin 16.
+    (let ((old (? reg)))
+      (! reg (or (and old (<< (~ %gpio-pin-control-mask) 18))
+		 (<< %gpio-pin-control-output 18))))))
 
 (define (set-led! state)
-  (! (+ gpio-base (if state 40 28)) (<< 1 16))) ;; TODO: read-modify-write?
+  (! (+ %gpio-base (if state %gpio-pin-output-clear-0 %gpio-pin-output-set-0))
+     (<< 1 16)))
 
 (define (pulse-bits bitfield)
   (if bitfield
