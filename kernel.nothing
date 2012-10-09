@@ -256,6 +256,29 @@
       (console-putc con ch)
       (console-puts con (+ p 1)))))
 
+(define (console-newline con)
+  (console-putc con 10))
+
+(define (console-putn* con i)
+  (if i
+      (begin (console-putn* con (/ i 10))
+	     (console-putc con (+ (% i 10) 48)))
+      0))
+
+(define (console-putn i)
+  (if i
+      (console-putn* i)
+      (console-putc 48)))
+
+(define (console-putx con n)
+  (let ((mutable shift 28))
+    (while (>=s shift 0)
+      (let ((digit (and 15 (>>u n shift))))
+	(console-putc con (+ digit (if (>=u digit 10)
+				       55 ;; 65 - 10
+				       48)))
+	(set! shift (- shift 4))))))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define (main)
