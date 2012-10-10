@@ -306,6 +306,15 @@
 ;; See note re +8 above.
 (define (*bl cc loc) (b-or-bl cc #t loc))
 
+(define (*blx cc rm)
+  (imm32* (bitfield 4 (condition-code-num cc)
+		    8 #b00010010
+		    4 15
+		    4 15
+		    4 15
+		    4 #b0011
+		    4 (reg-num rm))))
+
 (define (*clz cc rd rm)
   (imm32* (bitfield 4 (condition-code-num cc)
 		    8 #b00010110
