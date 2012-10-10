@@ -446,12 +446,16 @@
     [`(ret ,(preg 'r0))
      (nodata (list (if (or leaf? (zero? sp-delta)) '() (*add 'al 0 'sp 'sp sp-delta))
 		   (*mov 'al 0 'pc 'lr)))]
-    [`(call ,(preg 'r0) ,(label tag) ,args)
+    [`(call ,(preg 'r0) ,target ,args)
      (define outward-arg-count (length args))
-     (nodata (*bl 'al (label-reference tag)))]
-    [`(tailcall ,(preg 'r0) ,(label tag) ,args)
+     (nodata (match target
+	       [(preg r) (*blx 'al r)]
+	       [(label tag) (*bl 'al (label-reference tag))]))]
+    [`(tailcall ,(preg 'r0) ,target ,args)
      (nodata (list (if (or leaf? (zero? sp-delta)) '() (*add 'al 0 'sp 'sp sp-delta))
-		   (*b 'al (label-reference tag))))]
+		   (match target
+		     [(preg r) (*mov 'al 0 'pc r)]
+		     [(label tag) (*b 'al (label-reference tag))])))]
     [_ (error 'assemble-instr "Cannot assemble ~v" i)]))
 
 (define ((assemble-instr* inward-arg-count temp-count leaf?) i)
