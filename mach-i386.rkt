@@ -221,9 +221,10 @@
   (flush-output)
   bs)
 
-(define (assemble inward-arg-count temp-count leaf? instrs)
-  (define temp-size (* temp-count  word-size-bytes))
-  (define total-requirement (+ temp-size linkage-size))
+(define (assemble inward-arg-count most-tail-args temp-count leaf? instrs)
+  (define shuffle-space (* (- most-tail-args inward-arg-count) word-size-bytes))
+  (define temp-size (* temp-count word-size-bytes))
+  (define total-requirement (+ shuffle-space temp-size linkage-size))
   (define frame-size (round-up-to-nearest frame-alignment total-requirement))
   (define delta (- frame-size linkage-size))
 

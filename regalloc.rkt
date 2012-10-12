@@ -178,14 +178,10 @@
 			 (list (cons (temporary temp-count)
 				     (interval-invert live-interval)))))]))])))
 
-(define (allocate-registers md surplus-tail-args instrs)
+(define (allocate-registers md instrs)
   (define starting-reg-availability (map (lambda (r) (cons r (full-interval)))
 					 (available-regs md)))
-  (let loop ((prev-temp-count surplus-tail-args)
-	     ;; ^ this effectively reserves the first few temp slots
-	     ;; for use in moving around arguments during frame size
-	     ;; adjustment in a tail call.
-	     (prev-instrs instrs))
+  (let loop ((prev-temp-count 0) (prev-instrs instrs))
     ;;(pretty-print `(allocation-iteration ,prev-temp-count ,prev-instrs))
     (define-values (new-temp-count remaining-instrs mapping)
       (allocate-registers-once prev-temp-count prev-instrs starting-reg-availability))

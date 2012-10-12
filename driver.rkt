@@ -36,13 +36,12 @@
   (define target-reg (fresh-reg))
   (define-values (body-instrs body-data)
     (frontend body-exp (append rib env)))
-  (define most-tail-args (apply max (map (match-lambda
-					  [`(tailcall ,_ ,_ ,args) (length args)]
-					  [_ 0])
-					 body-instrs)))
-  (define surplus-tail-args (max 0 (- most-tail-args argcount)))
-  ;;(pretty-print `(most-tail-args ,most-tail-args))
-  ;;(pretty-print `(surplus-tail-args ,surplus-tail-args))
+  (define most-tail-args (apply max
+				argcount
+				(map (match-lambda
+				      [`(tailcall ,_ ,_ ,args) (length args)]
+				      [_ 0])
+				     body-instrs)))
   (pretty-print `(pre-expansion (body-instrs ,body-instrs)
 				(body-data ,body-data)))
   (define init-arg-instrs (do ((i 0 (+ i 1))
@@ -54,12 +53,16 @@
   (define instrs (expand-instructions md init-arg-instrs body-instrs))
   (define leaf? (not (findf (match-lambda [`(call ,_ ,_ ,_) #t] [_ #f]) instrs)))
   ;;(pretty-print `(post-expansion ,instrs))
-  (define-values (temp-count allocated-instrs) (allocate-registers md surplus-tail-args instrs))
+  (define-values (temp-count allocated-instrs) (allocate-registers md instrs))
+  ;; (pretty-print `((leaf? ,leaf?)
+  ;; 		  (argcount ,argcount)
+  ;; 		  (most-tail-args ,most-tail-args)
+  ;; 		  (temp-count ,temp-count)))
   ;;(pretty-print `(post-allocation ,allocated-instrs))
   (define peepholed-instrs (peephole allocated-instrs))
   (pretty-print `(peepholed-instrs ,peepholed-instrs))
   (define-values (machine-code machine-data)
-    (assemble md argcount temp-count leaf? peepholed-instrs))
+    (assemble md argcount most-tail-args temp-count leaf? peepholed-instrs))
   (pretty-print `(pre-linking (machine-code ,machine-code)
 			      (machine-data ,machine-data)))
   (values machine-code
