@@ -238,6 +238,9 @@
 (define (*push cc reglist) (ldm-or-stm cc #t #f 0 #t #f 'sp reglist))
 (define (*pop  cc reglist) (ldm-or-stm cc #f #t 0 #t #t 'sp reglist))
 
+;; Flag-setting variant, for use with interrupt/exception handlers
+(define (*pops cc reglist) (ldm-or-stm cc #f #t 1 #t #t 'sp reglist))
+
 (define (alu-op opcode cc s rd rn delta)
   (imm32* (bitfield 4 (condition-code-num cc)
 		    2 0
