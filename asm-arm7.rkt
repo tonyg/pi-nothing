@@ -324,6 +324,15 @@
 		    4 1
 		    4 (reg-num rm))))
 
+;; System modes
+(define arm-mode-user		#x10)
+(define arm-mode-fiq		#x11)
+(define arm-mode-irq		#x12)
+(define arm-mode-supervisor	#x13) ;; aka SVC mode; the CPU boots into this mode
+(define arm-mode-abort		#x17)
+(define arm-mode-undefined	#x1b)
+(define arm-mode-system		#x1f)
+
 ;; CPSR/SPSR -> register
 (define (*mrs cc spsr? rd)
   (imm32* (bitfield 4 (condition-code-num cc)
