@@ -352,3 +352,23 @@
 				     4 (reg-num rm-or-imm))
 			   (let ((r (best-rotation rm-or-imm)))
 			     (bitfield 4 (car r) 8 (cdr r)))))))
+
+(define (*cps enable-or-disable flags mode)
+  (when (and (eq? enable-or-disable #f) (eq? mode #f))
+    (error '*cps "Must either enable or disable some flag bits, or set a mode"))
+  (imm32* (bitfield 4 15
+		    8 #b00010000
+		    2 (case enable-or-disable
+			((enable) 2)
+			((disable) 3)
+			((#f) 0)
+			(else (error '*cps
+				     "Invalid value for enable-or-disable: ~v" enable-or-disable)))
+		    1 (if mode 1 0)
+		    1 0
+		    7 0
+		    1 (bool->bit (and (memq 'a flags) #t))
+		    1 (bool->bit (and (memq 'i flags) #t))
+		    1 (bool->bit (and (memq 'f flags) #t))
+		    1 0
+		    5 (or mode 0))))
