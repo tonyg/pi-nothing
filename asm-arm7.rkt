@@ -29,10 +29,7 @@
 
 ;; PlusMinus is either '+ or '-
 
-;; An Address is one of
-;; (@imm Integer)
-;; (@reg Register PlusMinus Delta)
-(struct @imm (address) #:prefab)
+;; An Address is a (@reg Register PlusMinus Delta)
 (struct @reg (register op delta) #:prefab)
 
 ;; A AddressMode is either a plain Address ("offset" addressing), or
