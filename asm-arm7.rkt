@@ -323,3 +323,35 @@
 		    4 15
 		    4 1
 		    4 (reg-num rm))))
+
+;; CPSR/SPSR -> register
+(define (*mrs cc spsr? rd)
+  (imm32* (bitfield 4 (condition-code-num cc)
+		    5 2
+		    1 (bool->bit spsr?) ;; 1 = SPSR, 0 = CPSR
+		    2 0
+		    4 15
+		    4 (reg-num rd)
+		    12 0)))
+
+;; register/immediate -> CPSR/SPSR
+(define (*msr cc spsr? fields rm-or-imm)
+  (when (null? fields)
+    (error '*msr "No field flags supplied"))
+  (imm32* (bitfield 4 (condition-code-num cc)
+		    2 0
+		    1 (bool->bit (not (register? rm-or-imm)))
+		    2 2
+		    1 (bool->bit spsr?) ;; 1 = SPSR, 0 = CPSR
+		    2 2
+		    1 (bool->bit (and (memq 'f fields) #t))
+		    1 (bool->bit (and (memq 's fields) #t))
+		    1 (bool->bit (and (memq 'x fields) #t))
+		    1 (bool->bit (and (memq 'c fields) #t))
+		    4 15
+		    12 (if (register? rm-or-imm)
+			   (bitfield 4 0
+				     4 0
+				     4 (reg-num rm-or-imm))
+			   (let ((r (best-rotation rm-or-imm)))
+			     (bitfield 4 (car r) 8 (cdr r)))))))
