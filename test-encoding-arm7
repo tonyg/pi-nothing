@@ -1,0 +1,11 @@
+#!/bin/sh
+
+cat <<EOF > experiment.s
+	.text
+	.global e
+e:
+EOF
+echo "$1" >> experiment.s
+cat experiment.s
+arm-none-eabi-as -o experiment.o experiment.s
+arm-none-eabi-objdump -d experiment.o
