@@ -923,6 +923,7 @@ static sDisOptions options = {
 
 static void disassemble(const char * filename, unsigned long base) {
   FILE * f = strcmp(filename, "-") ? fopen(filename, "rb") : stdin;
+  unsigned char wordbytes[4];
   word w;
   unsigned long addr;
 
@@ -932,7 +933,11 @@ static void disassemble(const char * filename, unsigned long base) {
   }
 
   addr = base;
-  while (fread(&w, 4, 1, f) != 0) {
+  while (fread(&wordbytes[0], 4, 1, f) != 0) {
+    w = ((word) wordbytes[0])
+      | ((word) wordbytes[1] << 8)
+      | ((word) wordbytes[2] << 16)
+      | ((word) wordbytes[3] << 24);
     pInstruction instr = instr_disassemble(w, addr, &options);
     printf("%.6lX %.8lX\t%s", addr, w, instr->text);
     if (instr->undefined || instr->badbits || instr->oddbits) {
