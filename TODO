@@ -5,3 +5,9 @@ correct; I commented it out because it was causing spurious saves of
 all savables in the (x (x (x))) example.
 
 try to figure out a way to use STM and LDM in ARM backend
+
+Apply lessons from "Destination-Driven Code Generation" by R. Kent
+Dybvig, Robert Hieb and Tom Butler (IUCS TR 302, Feb 1990). In
+particular, unkink the existing "dest" argument and augment it with
+corresponding control arguments. Generalize the while loop to repeat
+plus break, as shown in the paper.
