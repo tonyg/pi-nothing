@@ -177,6 +177,20 @@
        #x12345678)
     `((puts ,(label '_puts))))
 
+;; ;; The naive compilation of a computed taillcall SIGSEGVs right now
+;; ;; because the compiler/linker isn't bright enough to do a
+;; ;; RIP-relative computed goto.
+;; (let ()
+;;   (local-require "asm-x86_64.rkt")
+;;   (re '()
+;;       `(let ((syscall (data ,(list (*mov 'rcx 'r10)
+;; 				   (*mov 4 'rax)
+;; 				   (*syscall)
+;; 				   (*ret)))))
+;; 	 (syscall 1 (data #"HELLO\n") 6 0 0 0 4))
+;;       '()
+;;       '()))
+
 (check-equal? (re '(a b) '(+ a b) '() '(123 234)) 357)
 (check-equal? (re '(a b) '(if (>s a b) 111 222) '() '(123 234)) 222)
 (check-equal? (re '(a b) '(if (>s a b) 111 222) '() '(234 123)) 111)
