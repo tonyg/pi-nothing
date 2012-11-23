@@ -128,32 +128,32 @@
       (if (and (register? target) (not (fourbyte-immediate? source)))
 	  ;; special alternate encoding
 	  (list (if (= w-bit 1) (rex reg-num 1 0 0 target) '())
-		(bitfield 4 #b1011 1 w-bit 3 (reg-num target))
+		(bitfield 4 #b1011 1 w-bit 3 (bitwise-and 7 (reg-num target)))
 		(imm64-if (= w-bit 1) source))
 	  (list (mod-r-m-64 (bitfield 2 3 3 0 2 3 1 w-bit) 0 target)
 		(imm32-if (= w-bit 1) source))))
      ((memory? source)
       (cond
-       ((and (@imm? source) (register=? target 'eax))
-	;; special alternate encoding
-	(if (fourbyte-immediate? (@imm-address source))
-	    (list (bitfield 7 #b1010000 1 w-bit) (imm32* (@imm-address source)))
+       ((and (@imm? source) (not (fourbyte-immediate? (@imm-address source))))
+	(if (register=? target 'rax)
+	    ;; special alternate encoding
 	    (list (rex reg-num 1 0 0 0)
 		  (bitfield 7 #b1010000 1 w-bit)
-		  (imm64* (@imm-address source)))))
+		  (imm64* (@imm-address source)))
+	    (error "*mov: Cannot move 64-bit direct into non-rax register" (list source target))))
        ((not (register? target))
 	(error "*mov: Cannot have memory source and non-register target" (list source target)))
        (else
 	(mod-r-m-64 (bitfield 2 2 3 1 2 1 1 w-bit) target source))))
      ((register? source)
       (cond
-       ((and (@imm? target) (register=? source 'eax))
-	;; special alternate encoding
-	(if (fourbyte-immediate? (@imm-address target))
-	    (list (bitfield 7 #b1010001 1 w-bit) (imm32* (@imm-address target)))
+       ((and (@imm? target) (not (fourbyte-immediate? (@imm-address target))))
+	(if (register=? source 'rax)
+	    ;; special alternate encoding
 	    (list (rex reg-num 1 0 0 0)
 		  (bitfield 7 #b1010001 1 w-bit)
-		  (imm64* (@imm-address target)))))
+		  (imm64* (@imm-address target)))
+	    (error "*mov: Cannot move non-rax register into 64-bit direct" (list source target))))
        ((or (memory? target) (register? target))
 	(mod-r-m-64 (bitfield 2 2 3 1 2 0 1 w-bit) source target))
        (else
@@ -259,6 +259,19 @@
 (check-equal? (flatten (*op 'add 'r14 'r15)) (unhex-string "4d 01 f7"))
 
 (check-equal? (flatten (*mov 'r15 (@reg 'rbp -8))) (unhex-string "4c 89 7d f8"))
+
+(check-equal? (flatten (*mov #x123456789a 'rax)) (unhex-string "48 b8 9a 78 56 34 12 00 00 00"))
+(check-equal? (flatten (*mov #x123456789a 'rdx)) (unhex-string "48 ba 9a 78 56 34 12 00 00 00"))
+(check-equal? (flatten (*mov #x123456789a 'r11)) (unhex-string "49 bb 9a 78 56 34 12 00 00 00"))
+(check-equal? (flatten (*mov (@imm #x123456789a) 'rax)) (unhex-string "48 a1 9a 78 56 34 12 00 00 00"))
+(check-equal? (flatten (*mov (@imm #x12345678) 'rax)) (unhex-string "48 8b 04 25 78 56 34 12"))
+(check-equal? (flatten (*mov (@imm #x12345678) 'rdx)) (unhex-string "48 8b 14 25 78 56 34 12"))
+(check-equal? (flatten (*mov (@imm #x12345678) 'r11)) (unhex-string "4c 8b 1c 25 78 56 34 12"))
+
+(check-equal? (flatten (*mov 'rax (@imm #x123456789a))) (unhex-string "48 a3 9a 78 56 34 12 00 00 00"))
+(check-equal? (flatten (*mov 'rax (@imm #x12345678))) (unhex-string "48 89 04 25 78 56 34 12"))
+(check-equal? (flatten (*mov 'rdx (@imm #x12345678))) (unhex-string "48 89 14 25 78 56 34 12"))
+(check-equal? (flatten (*mov 'r11 (@imm #x12345678))) (unhex-string "4c 89 1c 25 78 56 34 12"))
 
 (check-equal? (flatten (*op 'cmp 'rax 'rbx)) (unhex-string "48 39 c3"))
 (check-equal? (flatten (*op 'cmp 'rbx 'rax)) (unhex-string "48 39 d8"))
