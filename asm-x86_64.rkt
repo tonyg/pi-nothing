@@ -39,6 +39,9 @@
 
 	 *leave
 	 *ret
+
+	 *syscall
+	 *sysret
 	 )
 
 (define regs '((rax 0)
@@ -195,6 +198,19 @@
 
 (define (*leave) #xC9)
 (define (*ret) #xC3)
+
+;; rcx <- rip following the syscall; r11 <- saved flags
+;; the msr IA32_LSTAR is the target of the syscall
+;; the complement of IA32_FMASK (msr C0000084) is anded with RFLAGS during this instr
+;; the CS and SS selectors are loaded from IA32_STAR_MSR
+(define (*syscall) (list #x0F #x05))
+
+;; rip <- rcx
+;; RFLAGS <- r11
+;; CS and SS from IA32_STAR_MSR
+;; gas calls this instruction variant (with its REX prefix) "sysretq".
+;; The non-REX variant it calls "sysretl".
+(define (*sysret) (list (rex reg-num 1 0 0 0) #x0F #x07))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
