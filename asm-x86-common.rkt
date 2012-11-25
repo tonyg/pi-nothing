@@ -147,6 +147,9 @@
 				  (else (imm32* offset))))
 	      (base-reg-num (reg-num base-reg)))
 	  (cond
+	   ((and is-64bit? (eq? base-reg-num 'rip-relative))
+	    ;; special RIP-relative ModR/M construction. p49 (p2-15), vol. 2A, Intel 253666
+	    (rex-wrap reg 0 5 (list (mod-r-m* 0 reg 5) (imm32* offset))))
 	   ((= base-reg-num 4) ;; esp, rsp
 	    ;; can't directly use base reg, must use scaled indexing
 	    (rex-wrap mod reg 4

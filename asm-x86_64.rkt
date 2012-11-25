@@ -59,7 +59,8 @@
 	       (r12 12)
 	       (r13 13)
 	       (r14 14)
-	       (r15 15)))
+	       (r15 15)
+	       (rip rip-relative)))
 
 (define (reg-num reg)
   (cond
