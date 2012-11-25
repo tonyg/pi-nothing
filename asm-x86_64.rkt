@@ -36,6 +36,7 @@
 	 *jmp-cc
 	 *push
 	 *pop
+	 *lea
 
 	 *leave
 	 *ret
@@ -196,6 +197,9 @@
 
 (define (*pop reg)
   (mod-r-m* 1 3 (reg-num reg)))
+
+(define (*lea loc reg)
+  (mod-r-m-64 #x8D reg loc))
 
 (define (*leave) #xC9)
 (define (*ret) #xC3)
