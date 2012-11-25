@@ -152,13 +152,13 @@
 	    (rex-wrap reg 0 5 (list (mod-r-m* 0 reg 5) (imm32* offset))))
 	   ((= base-reg-num 4) ;; esp, rsp
 	    ;; can't directly use base reg, must use scaled indexing
-	    (rex-wrap mod reg 4
+	    (rex-wrap reg mod 4
 		      (list (mod-r-m* mod reg 4) #x24 offset-bytes)))
 	   ((and (= (bitwise-and 7 base-reg-num) 5) ;; ebp, rbp, r13
 		 (zero? offset))
 	    ;; conflicts with raw absolute address "@imm" usage so we
 	    ;; encode it with an explicit "+0"; see also above
-	    (rex-wrap 1 reg base-reg-num
+	    (rex-wrap reg 1 base-reg-num
 		      (list (mod-r-m* 1 reg base-reg-num) 0)))
 	   (else
 	    ;; normal
