@@ -57,9 +57,9 @@
 ;;
 ;;  - We do NOT move the stack pointer down over outbound arguments.
 ;;    Instead, the callee moves the stack pointer as they see fit.
-;;    This is totally difference from AAPCS. The reason for this is
-;;    so that the callee can tail-call someone else without having to
-;;    do any hairy adjusting of the frame, and so that the original
+;;    This is totally different to AAPCS. The reason for this is so
+;;    that the callee can tail-call someone else without having to do
+;;    any hairy adjusting of the frame, and so that the original
 ;;    caller doesn't have to know anything about what's left to clean
 ;;    up when they receive control: all the clean-up has already been
 ;;    completed.
@@ -82,11 +82,11 @@
 ;;
 ;; Upon entry to a subroutine, Ni=5, No=7, Nt=3, Na=3:
 ;;
-;;   (low)                                                                   (high)
-;;       | outbound  |   |   temps   |   |shuffle|       inbound         |
-;;       | 0 | 1 | 2 |---| 0 | 1 | 2 |---| - | - | 0 | 1 | 2 | 3 | 4 | 5 |---|
-;;                       ^                                                   ^
-;;                     sp for non-leaf                                    sp for leaf
+;;   (low)                                                               (high)
+;;       | outbound  |   |   temps   |   |shuffle|      inbound      |
+;;       | 0 | 1 | 2 |---| 0 | 1 | 2 |---| - | - | 0 | 1 | 2 | 3 | 4 |---|
+;;                       ^                                               ^
+;;                     sp for non-leaf                                sp for leaf
 ;;
 ;; Note that the first four arguments are transferred in registers,
 ;; but that stack slots still need to be reserved. Note also the
