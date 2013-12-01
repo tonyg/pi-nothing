@@ -114,6 +114,12 @@
 	     (map (lambda (name) `(move-word ,(preg name) ,(junk))) killed-regs)
 	     (map (lambda (name) `(use ,(preg name))) killed-regs)
 	     (list`(move-word ,target ,(preg 'rax))))]
+    [`(,(and op (or 'store-word 'store-byte)) ,target ,source)
+     (define rt (if (non-reg? target) (fresh-reg) target))
+     (define rs (if (non-reg? source) (fresh-reg) source))
+     (list `(move-word ,rt ,target)
+	   `(move-word ,rs ,source)
+	   `(,op ,rt ,rs))]
     [i
      (list i)]))
 
@@ -162,6 +168,10 @@
 		(define r (fresh-reg))
 		(list `(,op ,r ,source ,offset)
 		      `(move-word ,(temporary n) ,r))]
+	       [`(,(and op (or 'store-word 'store-byte)) ,target ,(temporary n))
+		(define r (fresh-reg))
+		(list `(move-word ,r ,(temporary n))
+		      `(,op ,target ,r))]
 	       [i
 		(list i)])
 	      instrs))
@@ -183,7 +193,9 @@
     [`(load-word ,(preg target) ,(preg source) ,ofs)	(*mov (@reg source ofs) target)]
     [`(load-byte ,(preg target) ,(preg source) ,ofs)	(*movz (@reg source ofs) target)]
     [`(load-word ,(preg target) ,(lit n) ,ofs)		(*mov (@imm (+ n ofs)) target)]
-    [`(load-byte ,(preg target) ,(lit n) ,ofs)		(*mov (@imm (+ n ofs)) target #t)]
+    [`(load-byte ,(preg target) ,(lit n) ,ofs)		(*movz (@imm (+ n ofs)) target)]
+    [`(store-word ,(preg target) ,(preg source))	(*mov source (@reg target 0))]
+    [`(store-byte ,(preg target) ,(preg source))	(*mov source (@reg target 0) #t)]
     [`(w+ ,target ,target ,source)			(*op 'add (xs source) (xs target))]
     [`(w- ,target ,target ,source)			(*op 'sub (xs source) (xs target))]
     [`(w* ,target ,target ,source)			(*imul (xs source) (xs target))]
