@@ -44,7 +44,8 @@
 ;; following the origin: 0x100001000.
 
 (define assembly-prelude
-  (string-append ".text\n"
+  (string-append ".section __IMPORT,__text,regular,self_modifying_code\n"
+		 ;; ^ because we want a writable (!) "text" segment
 		 ".code64\n"
 		 ".globl start\n"
 		 ".align 12\n"
