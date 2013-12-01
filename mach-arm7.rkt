@@ -148,12 +148,6 @@
       (preg (list-ref '(r0 r1 r2 r3) i))
       (outward-arg calltype count i)))
 
-(define (reg-or-preg? x)
-  (or (reg? x) (preg? x)))
-
-(define (non-reg? x)
-  (not (reg-or-preg? x)))
-
 (define ((expand-instruction saved-locs) instr)
   (match instr
     [`(wdiv ,target ,s1 ,s2)

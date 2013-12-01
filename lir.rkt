@@ -43,6 +43,8 @@
 
 	 location?
 	 memory-location?
+	 reg-or-preg?
+	 non-reg?
 
 	 def-use
 	 instr-fold
@@ -77,6 +79,12 @@
   (or (temporary? x)
       (inward-arg? x)
       (outward-arg? x)))
+
+(define (reg-or-preg? x)
+  (or (reg? x) (preg? x)))
+
+(define (non-reg? x)
+  (not (reg-or-preg? x)))
 
 (define (def-use* instr)
   (match instr
