@@ -38,13 +38,8 @@
 (require "asm-x86_64.rkt")
 (require "mach-x86_64.rkt")
 
-;; TODO: fix this text -- it applies to Mach-O
-;; It looks like (on my system, at least) program images are loaded
-;; into core at 0x100000000. The first page begins with the Mach-O
-;; header, so the actual program text starts toward the end of the
-;; page. We force a 12-bit alignment before our "start" symbol so that
-;; we know our code will be generated on the first page boundary
-;; following the origin: 0x100001000.
+;; It looks like (on my system, at least) program images are usually
+;; loaded into core at 0x400000, so we do the same here.
 
 (define md machine-x86_64)
 (define origin-addr #x0000000000400000)
