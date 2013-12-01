@@ -158,9 +158,9 @@
 		(define r (fresh-reg))
 		(list `(move-word ,r ,m)
 		      `(compare ,cmpop ,target ,n ,r))]
-	       [`(load-word ,(temporary n) ,source ,offset)
+	       [`(,(and op (or 'load-word 'load-byte)) ,(temporary n) ,source ,offset)
 		(define r (fresh-reg))
-		(list `(load-word ,r ,source ,offset)
+		(list `(,op ,r ,source ,offset)
 		      `(move-word ,(temporary n) ,r))]
 	       [i
 		(list i)])
@@ -180,7 +180,10 @@
       ))
   (match i
     [`(move-word ,target ,source)			(*mov (xs source) (xs target))]
+    [`(load-word ,(preg target) ,(preg source) ,ofs)	(*mov (@reg source ofs) target)]
+    [`(load-byte ,(preg target) ,(preg source) ,ofs)	(*movz (@reg source ofs) target)]
     [`(load-word ,(preg target) ,(lit n) ,ofs)		(*mov (@imm (+ n ofs)) target)]
+    [`(load-byte ,(preg target) ,(lit n) ,ofs)		(*mov (@imm (+ n ofs)) target #t)]
     [`(w+ ,target ,target ,source)			(*op 'add (xs source) (xs target))]
     [`(w- ,target ,target ,source)			(*op 'sub (xs source) (xs target))]
     [`(w* ,target ,target ,source)			(*imul (xs source) (xs target))]

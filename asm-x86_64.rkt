@@ -30,6 +30,7 @@
 	 *inc
 	 *mov
 	 *cmov
+	 *movz
 	 *setcc-rax
 	 *call
 	 *jmp
@@ -166,6 +167,9 @@
 
 (define (*cmov code source target)
   (mod-r-m-64 (list #x0F (bitfield 4 4 4 (condition-code-num code))) target source))
+
+(define (*movz source target) ;; load 8-bit value into 64-bit register with zero-extend
+  (mod-r-m-64 (list #x0F #xB6) target source))
 
 (define (*setcc-rax code)
   (list (list #x0F (bitfield 4 9 4 (condition-code-num code)) (mod-r-m* 3 0 0))
