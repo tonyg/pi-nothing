@@ -44,8 +44,7 @@
 ;; following the origin: 0x100001000.
 
 (define assembly-prelude
-  (string-append "#include <sys/syscall.h>\n"
-		 ".text\n"
+  (string-append ".text\n"
 		 ".code64\n"
 		 ".globl start\n"
 		 ".align 12\n"
