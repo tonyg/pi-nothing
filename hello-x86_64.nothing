@@ -1,0 +1,22 @@
+;; -*- mode: scheme -*-
+
+(define (newline)
+  (%%write 0 (data #"\n") 1))
+
+(define (strlen p)
+  (let ((mutable p p)
+	(mutable count 0)
+	(mutable ch (?byte p)))
+    (while ch
+      (set! count (+ count 1))
+      (set! p (+ p 1))
+      (set! ch (?byte p)))
+    count))
+
+(define (puts s)
+  (%%write 0 s (strlen s)))
+
+(define (main)
+  (newline)
+  (puts (data #"Hello, world!\n\0"))
+  0)

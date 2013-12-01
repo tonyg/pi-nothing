@@ -6,7 +6,7 @@ endif
 
 KERNEL=kernel
 
-all: disassemblers compiled/main-arm_rkt.zo $(KERNEL).img
+all: disassemblers compiled $(KERNEL).img
 
 disassemblers: beaengine-wrapper.so disarm/disarm-0.11
 
@@ -45,5 +45,8 @@ clean-kernel:
 %.img: %.nothing %.startaddr *.rkt
 	racket main-arm.rkt --start $$(cat $*.startaddr) $* 2>&1 | tee $*.log
 
-compiled/main-arm_rkt.zo: *.rkt
-	raco make main-arm.rkt
+compiled: *.rkt
+	raco make main-arm.rkt exec-macho.rkt
+
+hello-x86_64: hello-x86_64.nothing
+	racket exec-macho.rkt hello-x86_64
