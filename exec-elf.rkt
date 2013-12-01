@@ -84,7 +84,7 @@
 
 		;; Elf64_Phdr
 		(1 :: little-endian bits 32) ;; p_type - PT_LOAD = 1
-		(5 :: little-endian bits 32) ;; p_flags - PT_R=4 | PT_W=2 | PT_X=1 --> 7
+		(7 :: little-endian bits 32) ;; p_flags - PT_R=4 | PT_W=2 | PT_X=1 --> 7
 		(0 :: little-endian bits 64) ;; p_offset
 		(origin-addr :: little-endian bits 64) ;; p_vaddr
 		(origin-addr :: little-endian bits 64) ;; p_paddr
