@@ -26,6 +26,8 @@
 (require (only-in racket/file file->list))
 (require (only-in racket/list make-list append-map))
 
+(require (planet tonyg/bitsyntax))
+
 (require "driver.rkt")
 (require "linker.rkt")
 (require "dump-bytes.rkt")
@@ -39,29 +41,125 @@
 ;; It looks like (on my system, at least) program images are loaded
 ;; into core at 0x100000000. The first page begins with the Mach-O
 ;; header, so the actual program text starts toward the end of the
-;; page. We force a 12-bit alignment before our "start" symbol so that
-;; we know our code will be generated on the first page boundary
-;; following the origin: 0x100001000.
-
-(define assembly-prelude
-  (string-append ".section __IMPORT,__text,regular,self_modifying_code\n"
-		 ;; ^ because we want a writable (!) "text" segment
-		 ".code64\n"
-		 ".globl start\n"
-		 ".align 12\n"
-		 "start:\n"))
+;; page. We follow these conventions, and generate our code to run
+;; from the first page boundary following the origin: 0x100001000.
 
 (define md machine-x86_64)
 (define start-addr #x100001000)
 
+;; /usr/include/mach-o/loader.h
+;; https://developer.apple.com/library/mac/documentation/developertools/conceptual/MachORuntime/Reference/reference.html
+;; https://developer.apple.com/library/mac/documentation/developertools/conceptual/MachORuntime/Reference/reference.html#//apple_ref/c/tag/mach_header_64
+
+(define (mach-header-64 commands)
+  (define sizeofcmds (foldr + 0 (map bit-string-byte-count commands)))
+  (define flags (bitwise-ior #x1 ;; MH_NOUNDEFS
+			     ;; #x400 ;; MH_NOFIXPREBINDING
+			     ;; #x20000 ;; MH_ALLOW_STACK_EXECUTION
+			     ))
+  (apply bit-string-append
+	 (bit-string (#xfeedfacf :: little-endian bits 32) ;; magic
+		     (#x01000007 :: little-endian bits 32) ;; cputype: CPU_TYPE_X86_64
+		     (3 :: little-endian bits 32) ;; cpusubtype: CPU_SUBTYPE_X86_64_ALL
+		     (1 :: little-endian bits 32) ;; filetype: MH_OBJECT
+		     ((length commands) :: little-endian bits 32) ;; ncmds
+		     (sizeofcmds :: little-endian bits 32) ;; sizeofcmds
+		     (flags :: little-endian bits 32)	   ;; flags
+		     (0 :: little-endian bits 32)	   ;; reserved
+		     )
+	 commands))
+
+(define (mach-load-command cmdtype payload)
+  (unless (zero? (modulo (bit-string-byte-count payload) 8))
+    (error 'mach-load-command "Mach-O load command payload must be a multiple of 8 bytes long"))
+  (bit-string (cmdtype :: little-endian bits 32)
+	      ((+ 8 (bit-string-byte-count payload)) :: little-endian bits 32)
+	      ;; ^ **includes** size of the cmdtype and cmdsize fields, as well as the payload
+	      (payload :: binary)))
+
+(define (fixed-width-c-string s w)
+  (string->bytes/latin-1 (substring (string-append s (make-string w #\nul)) 0 w)))
+
+(define (mach-segment-command-64 segname sectname vmaddr vmsize fileoff filesize sectionsize)
+  (define segname-bytes (fixed-width-c-string segname 16))
+  (define sectname-bytes (fixed-width-c-string sectname 16))
+  (mach-load-command
+   #x19 ;; LC_SEGMENT_64
+   (bit-string (segname-bytes :: binary) ;; 16 bytes long
+	       (vmaddr :: little-endian bits 64)
+	       (vmsize :: little-endian bits 64)
+	       (fileoff :: little-endian bits 64)
+	       (filesize :: little-endian bits 64)
+	       (7 :: little-endian bits 32) ;; maxprot: R=1 | W=2 | X=4 --> 7
+	       (7 :: little-endian bits 32) ;; initprot: same
+	       (1 :: little-endian bits 32) ;; nsects
+	       (0 :: little-endian bits 32) ;; flags
+
+	       ;; Section-header and section follows segment-header
+	       (sectname-bytes :: binary) ;; 16 bytes long
+	       (segname-bytes :: binary)  ;; 16 bytes long
+	       (vmaddr :: little-endian bits 64) ;; addr
+	       (sectionsize :: little-endian bits 64) ;; size
+	       (fileoff :: little-endian bits 32) ;; offset
+	       (12 :: little-endian bits 32) ;; align (4096 = 2^12)
+	       (0 :: little-endian bits 32) ;; reloff (no relocations)
+	       (0 :: little-endian bits 32) ;; nreloc (no relocations)
+	       (#x04000400 :: little-endian bits 32)
+	       ;; ^ flags: S_REGULAR + S_ATTR_SELF_MODIFYING_CODE +
+	       ;;          S_ATTR_SOME_INSTRUCTIONS
+	       (0 :: little-endian bits 32) ;; reserved1
+	       (0 :: little-endian bits 32) ;; reserved2
+	       (0 :: little-endian bits 32) ;; reserved3
+	       )))
+
+(define (mach-thread-command entry-addr)
+  (mach-load-command
+   #x05 ;; LC_UNIXTHREAD
+   (bit-string (4 :: little-endian bits 32) ;; flavor: x86_THREAD_STATE64
+	       (42 :: little-endian bits 32) ;; count: 42 4-byte words of state
+	       (0 :: little-endian bits 64) ;; rax
+	       (0 :: little-endian bits 64) ;; rbx
+	       (0 :: little-endian bits 64) ;; rcx
+	       (0 :: little-endian bits 64) ;; rdx
+	       (0 :: little-endian bits 64) ;; rdi
+	       (0 :: little-endian bits 64) ;; rsi
+	       (0 :: little-endian bits 64) ;; rbp
+	       (0 :: little-endian bits 64) ;; rsp
+	       (0 :: little-endian bits 64) ;; r8
+	       (0 :: little-endian bits 64) ;; r9
+	       (0 :: little-endian bits 64) ;; r10
+	       (0 :: little-endian bits 64) ;; r11
+	       (0 :: little-endian bits 64) ;; r12
+	       (0 :: little-endian bits 64) ;; r13
+	       (0 :: little-endian bits 64) ;; r14
+	       (0 :: little-endian bits 64) ;; r15
+	       (entry-addr :: little-endian bits 64) ;; rip
+	       (0 :: little-endian bits 64) ;; rflags
+	       (0 :: little-endian bits 64) ;; cs
+	       (0 :: little-endian bits 64) ;; fs
+	       (0 :: little-endian bits 64) ;; gs
+	       )))
+
+(define (format-macho-image image memsize)
+  (define seg (mach-segment-command-64 "MutableTextSeg"
+				       "MutableTextSec"
+				       start-addr
+				       memsize
+				       #x1000
+				       (bit-string-byte-count image)
+				       (bit-string-byte-count image)))
+  (define thr (mach-thread-command start-addr))
+  (define hdr (mach-header-64 (list seg thr)))
+  (define padding (make-bytes (- #x1000 (bit-string-byte-count hdr)) 0))
+  (bit-string (hdr :: binary)
+	      (padding :: binary)
+	      (image :: binary)))
+
 (define (write-image filename bs)
-  (define assembly-filename (string-append filename ".S"))
-  (with-output-to-file assembly-filename #:exists 'replace
+  (with-output-to-file filename #:exists 'replace
     (lambda ()
-      (display assembly-prelude)
-      (for ((b (in-bytes bs)))
-	(printf ".byte 0x~a\n" (~r b #:base 16 #:min-width 2 #:pad-string "0")))))
-  (system* "/usr/bin/env" "gcc" "-nostdlib" "-static" "-o" filename assembly-filename))
+      (write-bytes (bit-string->bytes (format-macho-image bs (bytes-length bs))))))
+  (system* "/usr/bin/env" "chmod" "+x" filename))
 
 (define (startup-code)
   (list (*op 'and #xfffffffffffffff0 'rsp) ;; 16-byte stack alignment; also reqd for syscalls
