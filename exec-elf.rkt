@@ -92,7 +92,7 @@
 		((+ start-offset memsize) :: little-endian bits 64) ;; p_memsz
 		(#x1000 :: little-endian bits 64)  ;; p_align
 		))
-  (define padding (make-bytes (- start-offset (/ (bit-string-length header) 8)) 0))
+  (define padding (make-bytes (- start-offset (bit-string-byte-count header)) 0))
   (bit-string (header :: binary)
 	      (padding :: binary)
 	      (image :: binary)))
