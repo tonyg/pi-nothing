@@ -90,7 +90,7 @@
 		((+ start-offset (bytes-length image)) :: little-endian bits 32) ;; p_filesz
 		((+ start-offset memsize) :: little-endian bits 32) ;; p_memsz
 		(7 :: little-endian bits 32) ;; p_flags - PT_R=4 | PT_W=2 | PT_X=1 --> 7
-		(12 :: little-endian bits 32)  ;; p_align
+		(#x1000 :: little-endian bits 32)  ;; p_align
 		))
   (define padding (make-bytes (- start-offset (bit-string-byte-count header)) 0))
   (bit-string (header :: binary)
