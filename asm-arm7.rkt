@@ -384,3 +384,8 @@
 		    1 (bool->bit (and (memq 'f flags) #t))
 		    1 0
 		    5 (or mode 0))))
+
+(define (*swi cc num)
+  (imm32* (bitfield 4 (condition-code-num cc)
+		    4 15
+		    24 num)))
