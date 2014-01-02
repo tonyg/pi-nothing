@@ -42,11 +42,11 @@
   (while 1))
 
 (define (putc ch)
-  (while (and (? (+ uart0 uart-fr)) uart-flag-tx-fifo-full))
+  (while (binand (? (+ uart0 uart-fr)) uart-flag-tx-fifo-full))
   (! (+ uart0 uart-dr) ch))
 
 (define (poll-for-char)
-  (if (and (? (+ uart0 uart-fr)) uart-flag-rx-fifo-empty)
+  (if (binand (? (+ uart0 uart-fr)) uart-flag-rx-fifo-empty)
       -1
       (? (+ uart0 uart-dr))))
 
@@ -76,7 +76,7 @@
 (define (putx n)
   (let ((mutable shift 28))
     (while (>=s shift 0)
-      (let ((digit (and 15 (>>u n shift))))
+      (let ((digit (binand 15 (>>u n shift))))
 	(putc (+ digit (if (>=u digit 10)
 			   55 ;; 65 - 10
 			   48)))
@@ -205,7 +205,7 @@
 
 (define (configure-pci-slot slot)
   (let ((vendor-id (?pci slot pci-device-vendor-id)))
-    (when (not (= vendor-id -1))
+    (when (<> vendor-id -1)
       (puts (data #"Slot number \0")) (putn slot) (putc 32) (putx vendor-id) (newline)
       (puts (data #"Class/Rev \0")) (putx (?pci slot pci-device-class-code-rev-id)) (newline)
       (let ((mutable bar-num 0))
@@ -218,7 +218,7 @@
 
 (define (configure-pci)
   ;; http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.dui0224i/Cacdijji.html
-  (if (and 1 (? #x10000044))
+  (if (binand 1 (? #x10000044))
       (let ((self-slot (find-self-slot)))
 	(puts (data #"PCI configuration\n\n\0"))
 	(puts (data #"Self-slot: \0")) (putn self-slot) (newline)
@@ -226,8 +226,8 @@
 	;; TODO: should the following bus master config happen at
 	;; #x41000000 instead of #x42000000?
 	(!pci self-slot pci-device-status-command
-	      (or (?pci self-slot pci-device-status-command)
-		  PCI_COMMAND_BUS_MASTER)) ;; "set bit 2"
+	      (binor (?pci self-slot pci-device-status-command)
+		     PCI_COMMAND_BUS_MASTER)) ;; "set bit 2"
 	;; Now scan the bus
 	(let ((mutable i 11))
 	  (while (<u i 32)

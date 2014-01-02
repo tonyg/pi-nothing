@@ -178,19 +178,20 @@
     [`(>u ,a ,b) (cmp2 dest env '>u a b)]
     [`(>=u ,a ,b) (cmp2 dest env '>=u a b)]
 
-    [`(and ,rands ...) (op2 tail? dest env 'wand -1 rands)]
-    [`(or ,rands ...) (op2 tail? dest env 'wor 0 rands)]
-    [`(xor ,rands ...) (op2 tail? dest env 'wxor 0 rands)]
+    ;; TODO: logand, logor, logxor
+    [`(binand ,rands ...) (op2 tail? dest env 'wand -1 rands)]
+    [`(binor ,rands ...) (op2 tail? dest env 'wor 0 rands)]
+    [`(binxor ,rands ...) (op2 tail? dest env 'wxor 0 rands)]
     [`(,(and op (or '<< '>>s '>>u)) ,a ,b) 
      (seq ([av (translate-exp #f (fresh-reg) a env)]
 	   [bv (translate-exp #f (fresh-reg) b env)])
 	  (snip dest `(wshift ,op ,dest ,av ,bv)))]
 
-    [`(~ ,rand)
+    [`(binnot ,rand)
      (seq ([v (translate-exp #f dest rand env)])
 	  (snip dest `(wnot ,dest ,dest)))]
 
-    [`(not ,rand)
+    [`(lognot ,rand) ;; TODO: anding with 1 assumes 0/1 booleans
      (seq ([v (translate-exp #f dest rand env)])
 	  (snip dest
 		`(wnot ,dest ,dest)

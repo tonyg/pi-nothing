@@ -80,8 +80,8 @@
 (define (enable-led)
   (let ((reg (+ %gpio-base %gpio-function-select-1))) ;; pin 16.
     (let ((old (? reg)))
-      (! reg (or (and old (<< (~ %gpio-pin-control-mask) 18))
-		 (<< %gpio-pin-control-output 18))))))
+      (! reg (binor (binand old (<< (binnot %gpio-pin-control-mask) 18))
+		    (<< %gpio-pin-control-output 18))))))
 
 (define (set-led! state)
   (! (+ %gpio-base (if state %gpio-pin-output-clear-0 %gpio-pin-output-set-0))
@@ -89,7 +89,7 @@
 
 (define (pulse-bits bitfield)
   (if bitfield
-      (let ((bit (and bitfield 1)))
+      (let ((bit (binand bitfield 1)))
 	(pulse-bits (>>u bitfield 1))
 	(set-led! 1)
 	(if bit (long-delay) (short-delay))
@@ -114,8 +114,8 @@
 (define (*restore-alloc-state* saved-state)
   (! $alloc-pointer-addr saved-state))
 
-(define (round-up-to-4 x) (and #xfffffffc (+ x 3)))
-(define (round-up-to-16 x) (and #xfffffff0 (+ x 15)))
+(define (round-up-to-4 x) (binand #xfffffffc (+ x 3)))
+(define (round-up-to-16 x) (binand #xfffffff0 (+ x 15)))
 
 (define (alloc! size)
   ;; always returns a 16-byte aligned pointer
@@ -153,18 +153,18 @@
   ;; TODO: what kinds of memory barriers are needed here and in
   ;; mailbox-recv? See http://elinux.org/RPi_Framebuffer.
   (when (>=u mailbox-channel 16) (error %error-bad-mailbox-channel))
-  (when (and message-pointer 15) (error %error-bad-mailbox-pointer))
-  (while (and (mailbox-status) (<< 1 31)))
+  (when (binand message-pointer 15) (error %error-bad-mailbox-pointer))
+  (while (binand (mailbox-status) (<< 1 31)))
   (! (+ %mailbox-base %mailbox-reg-write)
-     (or mailbox-channel message-pointer)))
+     (binor mailbox-channel message-pointer)))
 
 (define (mailbox-recv mailbox-channel)
   (when (>=u mailbox-channel 16) (error %error-bad-mailbox-channel))
-  (while (and (mailbox-status) (<< 1 30)))
+  (while (binand (mailbox-status) (<< 1 30)))
   (let ((pointer-and-channel (? (+ %mailbox-base %mailbox-reg-read))))
-    (when (not (= (and pointer-and-channel 15) mailbox-channel))
+    (when (<> (binand pointer-and-channel 15) mailbox-channel)
       (error %error-unexpected-mailbox-message))
-    (and pointer-and-channel #xfffffff0)))
+    (binand pointer-and-channel #xfffffff0)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Mailbox property interface
@@ -215,7 +215,7 @@
 	(mailbox-send! %channel-properties-arm->vc buf)
 	(let ((reply (mailbox-recv %channel-properties-arm->vc)))
 	  ;; The reply seems to be the same as the buffer pointer we gave.
-	  (when (not (= reply buf))
+	  (when (<> reply buf)
 	    (console-puts con (data #"(Weird, get-*-memory reply \0"))
 	    (console-putx con reply)
 	    (console-puts con (data #" isn't buf \0"))
@@ -246,10 +246,10 @@
 (define (framebuffer-pixel-width fbinfo) (>>u (? (+ fbinfo framebuffer-description-depth)) 3))
 
 (define (pointer->gpu-pointer v)
-  (or #x40000000 v))
+  (binor #x40000000 v))
 
 (define (gpu-pointer->pointer v)
-  (and #x3fffffff v))
+  (binand #x3fffffff v))
 
 (define (initialize-framebuffer)
   (let ((fbinfo (alloc! sizeof-framebuffer-description))
@@ -335,7 +335,7 @@
 (define (console-putx con n)
   (let ((mutable shift 28))
     (while (>=s shift 0)
-      (let ((digit (and 15 (>>u n shift))))
+      (let ((digit (binand 15 (>>u n shift))))
 	(console-putc con (+ digit (if (>=u digit 10)
 				       55 ;; 65 - 10
 				       48)))
@@ -377,7 +377,7 @@
 		(mutable pixel 0)
 		(row (?byte p)))
 	    (while (<u pixel (<< 1 %char-width-shift))
-	      (! target (if (and row (<< 1 pixel)) color 0))
+	      (! target (if (binand row (<< 1 pixel)) color 0))
 	      (set! pixel (+ pixel 1))
 	      (set! target (+ target pixwidth)))
 	  (set! p (+ p 1))
