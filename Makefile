@@ -6,35 +6,26 @@ endif
 
 KERNEL=kernel
 
+UDIS=udis86-1.7.2
+
 all: disassemblers compiled $(KERNEL).img
 
-disassemblers: beaengine-wrapper.so disarm/disarm-0.11
+disassemblers: udcli disarm/disarm-0.11
 
-beaengine: beaengine-sources.zip
-	mkdir $@
-	(cd $@; unzip ../$<)
-
-beaengine/dist: beaengine
-	mkdir $@
-	(cd beaengine; CC="gcc -fPIC" cmake sources)
-	(cd beaengine; make)
-	cp beaengine/sources/lib/*/*.a $@
-	cp -r beaengine/sources/include $@
+udcli: $(UDIS).tar.gz
+	tar -zxvf $<
+	(cd $(UDIS); ./configure --disable-shared --prefix=`pwd`/dist && make && make install)
+	cp $(UDIS)/dist/bin/udcli .
+	rm -rf $(UDIS)
 
 disarm/disarm-0.11:
 	make -C disarm
 
-%.so: %.c beaengine/dist
-	$(CC) -o $@ $(SHARED) -I beaengine/dist/include -Lbeaengine/dist $< -lBeaEngine_s_d
-
-%: %.c beaengine/dist
-	$(CC) -o $@ -I beaengine/dist/include -Lbeaengine/dist $< -lBeaEngine_s_d
-
 clean: clean-disassemblers clean-racket clean-kernel
 
 clean-disassemblers:
-	rm -rf beaengine
-	rm -f beaengine-wrapper.so
+	rm -rf $(UDIS)
+	rm -f udcli
 
 clean-racket:
 	rm -rf compiled/

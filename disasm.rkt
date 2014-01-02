@@ -18,36 +18,20 @@
 
 (require (only-in racket/port with-input-from-bytes))
 (require (only-in racket/system system))
-(require ffi/unsafe)
 (require "platform.rkt")
 
 (provide disassemble-bytes!
 	 disassemble-raw!)
 
-(define lib (with-handlers ((exn:fail? (lambda (e) #f)))
-	      (ffi-lib "./beaengine-wrapper.so")))
-
-(define %disassemble-block
-  (if lib
-      (get-ffi-obj "disassemble_block" lib (_fun _gcpointer _int _uint _int _int -> _void))
-      (lambda (bs len base arch show-binary)
-	(display "beaengine not available")
-	(newline))))
-
 (define (disassemble-raw! x len
 			  #:arch [arch (current-cpu-architecture)]
 			  #:base [base 0]
 			  #:show-binary [show-binary #t])
-  (if (eq? arch 'arm7)
-      (disassemble-arm7 x len base)
-      (%disassemble-block x
-			  len
-			  base
-			  (case arch
-			    [(i386) 0]
-			    [(x86_64) 1]
-			    [else (error 'disassemble-block "Unsupported architecture ~v" arch)])
-			  (if show-binary 1 0))))
+  (case arch
+    [(arm7) (disassemble-arm7 x len base)]
+    [(i386) (disassemble-udcli "-32" x len base show-binary)]
+    [(x86_64) (disassemble-udcli "-64" x len base show-binary)]
+    [else (error 'disassemble-raw! "Unsupported architecture ~v" arch)]))
 
 (define (disassemble-bytes! bs
 			    #:arch [arch (current-cpu-architecture)]
@@ -60,3 +44,8 @@
     (lambda ()
       (system (string-append "./disarm/disarm-0.11 - "
 			     (number->string base))))))
+
+(define (disassemble-udcli mode x len base show-binary)
+  (with-input-from-bytes (subbytes x 0 len)
+    (lambda ()
+      (system (format "./udcli ~a~a" mode (if show-binary "" " -nohex"))))))
