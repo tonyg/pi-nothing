@@ -214,7 +214,8 @@
   ;;   (write `(,k = ,(list-ref instrs k) -> ,(hash-ref raw-live-map k)))
   ;;   (newline))
   (define live-ranges (extract-live-ranges instrs raw-live-map))
-  ;;(pretty-print `(live-ranges ,live-ranges))
+  ;; (local-require racket/pretty)
+  ;; (pretty-print `(live-ranges ,live-ranges))
   live-ranges)
 
 ;; TODO: Do constant-folding more generally.
