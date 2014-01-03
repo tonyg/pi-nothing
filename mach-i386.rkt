@@ -64,9 +64,9 @@
 	   `(wmod ,(preg 'eax) ,(preg 'eax) ,(preg 'ecx))
 	   `(use ,(preg 'eax))
 	   `(move-word ,target ,(preg 'edx)))]
-    [`(compare ,cmpop ,target ,s1 ,s2)
+    [`(compare/set ,cmpop ,target ,s1 ,s2)
      (list `(move-word ,(preg 'eax) ,s1)
-	   `(compare ,cmpop ,(preg 'eax) ,(preg 'eax) ,s2)
+	   `(compare/set ,cmpop ,(preg 'eax) ,(preg 'eax) ,s2)
 	   `(move-word ,target ,(preg 'eax)))]
     [`(ret ,target)
      (append (list `(move-word ,(preg 'eax) ,target))
@@ -132,10 +132,14 @@
 				      target
 				      s1
 				      s2)]
-	       [`(compare ,cmpop ,target ,(? memory-location? n) ,(? memory-location? m))
+	       [`(compare/set ,cmpop ,target ,(? memory-location? n) ,(? memory-location? m))
 		(define r (fresh-reg))
 		(list `(move-word ,r ,m)
-		      `(compare ,cmpop ,target ,n ,r))]
+		      `(compare/set ,cmpop ,target ,n ,r))]
+	       [`(compare/jmp ,cmpop ,target ,(? memory-location? n) ,(? memory-location? m))
+		(define r (fresh-reg))
+		(list `(move-word ,r ,m)
+		      `(compare/jmp ,cmpop ,target ,n ,r))]
 	       [`(load-word ,(temporary n) ,source ,offset)
 		(define r (fresh-reg))
 		(list `(load-word ,r ,source ,offset)
@@ -143,6 +147,21 @@
 	       [i
 		(list i)])
 	      instrs))
+
+(define (comparison-code cmpop real-s1 real-s2 k)
+  ;; Let wolog cmpop be <. Then we wish to compute s1 - s2 and have
+  ;; the comparison be true if the result of subtraction is
+  ;; negative. Now, (*op 'cmp source target) is based around target
+  ;; - source, so we need to make sure the arguments are in the
+  ;; correct order.
+  (define cc (case cmpop
+	       ((<=s) 'le) ((<s) 'l)
+	       ((<=u) 'be) ((<u) 'b)
+	       ((=) 'e) ((<>) 'ne)
+	       ((>s) 'g) ((>=s) 'ge)
+	       ((>u) 'a) ((>=u) 'ae)))
+  (cons (*op 'cmp real-s2 real-s1)
+	(k cc)))
 
 (define ((assemble-instr inward-arg-count temp-count) i)
   (define (xs v)
@@ -164,20 +183,14 @@
     [`(w* ,target ,target ,source)			(*imul (xs source) (xs target))]
     [`(wdiv ,(preg 'eax) ,(preg 'eax) ,(preg r))	(*div r)]
     [`(wmod ,(preg 'eax) ,(preg 'eax) ,(preg r))	(*div r)]
-    [`(compare ,cmpop ,(preg 'eax) ,s1 ,s2)
-     ;; Let wolog cmpop be <. Then we wish to compute s1 - s2 and have
-     ;; the comparison be true if the result of subtraction is
-     ;; negative. Now, (*op 'cmp source target) is based around target
-     ;; - source, so we need to make sure the arguments are in the
-     ;; correct order.
-     (define cc (case cmpop
-		  ((<=s) 'le) ((<s) 'l)
-		  ((<=u) 'be) ((<u) 'b)
-		  ((=) 'e) ((<>) 'ne)
-		  ((>s) 'g) ((>=s) 'ge)
-		  ((>u) 'a) ((>=u) 'ae)))
-     (list (*op 'cmp (xs s2) (xs s1))
-	   (*setcc-eax cc))]
+    [`(compare/set ,cmpop ,(preg 'eax) ,s1 ,s2)
+     (comparison-code cmpop (xs s1) (xs s2)
+		      (lambda (cc)
+			(list (*setcc-eax cc))))]
+    [`(compare/jmp ,cmpop ,(label tag) ,s1 ,s2)
+     (comparison-code cmpop (xs s1) (xs s2)
+		      (lambda (cc)
+			(list (*jmp-cc cc (label-reference tag)))))]
     [`(prepare-call nontail ,arg-count)
      (if (zero? arg-count)
 	 '()
@@ -199,9 +212,6 @@
 	 (*op 'add (round-up-to-nearest frame-alignment (* arg-count word-size-bytes)) 'esp))]
     [`(cleanup-call tail ,_)				'()]
     [(label tag)					(label-anchor tag)]
-    [`(jmp-false ,(preg val) ,(label tag))
-     (list (*op 'cmp 0 val)
-	   (*jmp-cc 'z (label-reference tag)))]
     [`(jmp ,(label tag))				(*jmp (label-reference tag))]
     [`(ret ,(preg 'eax))				(list (*leave) (*ret))]
     [`(call ,(preg 'eax) ,(label tag) ,_)		(*call (label-reference tag))]

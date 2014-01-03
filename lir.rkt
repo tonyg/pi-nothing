@@ -27,6 +27,7 @@
 (require racket/match)
 
 (require "intervals.rkt")
+(require "unsigned.rkt")
 
 (provide (struct-out lit)
 	 (struct-out junk)
@@ -55,6 +56,9 @@
 	 forward-control-transfer-edges
 
 	 compute-live-intervals
+
+	 evaluate-cmpop32
+	 negate-cmpop
 	 )
 
 (struct lit (val) #:prefab)
@@ -103,14 +107,14 @@
     [`(wdiv ,target ,s1 ,s2)		(values #t (set target) (set s1 s2))]
     [`(wmod ,target ,s1 ,s2)		(values #t (set target) (set s1 s2))]
     [`(wshift ,_ ,target ,s1 ,s2)	(values #t (set target) (set s1 s2))]
-    [`(compare ,_ ,target ,s1 ,s2)	(values #t (set target) (set s1 s2))]
+    [`(compare/set ,_ ,target ,s1 ,s2)	(values #t (set target) (set s1 s2))]
+    [`(compare/jmp ,_ ,target ,s1 ,s2)	(values #f (set) (set s1 s2 target))]
 
     [`(use ,source)			(values #f (set) (set source))]
     [`(prepare-call ,_ ,_)		(values #f (set) (set))]
     [`(cleanup-call ,_ ,_)		(values #f (set) (set))]
 
     [(? label?)				(values #f (set) (set))]
-    [`(jmp-false ,condition ,target)	(values #f (set) (set condition target))]
     [`(jmp ,target)			(values #f (set) (set target))]
     [`(ret ,r)				(values #f (set) (set r))]
     [`(,(or 'call 'tailcall) ,target ,label (,arg ...))
@@ -159,9 +163,10 @@
 	edges))
   (instr-fold (lambda (counter instr edges)
 		(match instr
-		  [`(jmp-false ,_ ,target)	(add-edge (add-edge edges (+ counter 1) counter)
-							  (hash-ref labels target #f)
-							  counter)]
+		  [`(compare/jmp ,_ ,target ,_ ,_)
+					(add-edge (add-edge edges (+ counter 1) counter)
+						  (hash-ref labels target #f)
+						  counter)]
 		  [`(jmp ,target)	(add-edge edges (hash-ref labels target #f) counter)]
 		  [`(ret ,_)		edges]
 		  [_			(add-edge edges (+ counter 1) counter)]))
@@ -211,3 +216,31 @@
   (define live-ranges (extract-live-ranges instrs raw-live-map))
   ;;(pretty-print `(live-ranges ,live-ranges))
   live-ranges)
+
+;; TODO: Do constant-folding more generally.
+(define (evaluate-cmpop32 cmpop n m)
+  (define opfn (case cmpop
+		 ((<=s) <=)
+		 ((<s) <)
+		 ((<=u) <=u32)
+		 ((<u) <u32)
+		 ((=) =)
+		 ((<>) (lambda (a b) (not (= a b))))
+		 ((>s) >)
+		 ((>=s) >=)
+		 ((>u) >u32)
+		 ((>=u) >=u32)))
+  (opfn n m))
+
+(define (negate-cmpop cmpop)
+  (case cmpop
+    ((<=s) '>s)
+    ((<s) '>=s)
+    ((<=u) '>u)
+    ((<u) '>=u)
+    ((=) '<>)
+    ((<>) '=)
+    ((>s) '<=s)
+    ((>=s) '<s)
+    ((>u) '<=u)
+    ((>=u) '<u)))

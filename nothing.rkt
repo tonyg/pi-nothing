@@ -86,7 +86,7 @@
 (define (cmp2 dest env rator a b)
   (seq ([av (translate-exp #f (fresh-reg) a env)]
 	[bv (translate-exp #f (fresh-reg) b env)])
-       (snip dest `(compare ,rator ,dest ,av ,bv))))
+       (snip dest `(compare/set ,rator ,dest ,av ,bv))))
 
 (define (lookup varname env)
   (findf (lambda (b) (equal? varname (binding-name b))) env))
@@ -208,7 +208,7 @@
      (define Ldone (fresh-label))
      (seq ([testv (translate-exp #f (fresh-reg) test env)])
 	  (match-define (snippet bi bd bv) (translate-exp tail? dest `(begin ,@body) env))
-	  (snippet (append (list `(jmp-false ,testv ,Ldone))
+	  (snippet (append (list `(compare/jmp = ,Ldone ,testv ,(lit 0)))
 			   bi
 			   (list Ldone))
 		   bd
@@ -220,7 +220,7 @@
      (seq ([testv (translate-exp #f (fresh-reg) test env)])
 	  (match-define (snippet ti td tv) (translate-exp tail? dest texp env))
 	  (match-define (snippet fi fd fv) (translate-exp tail? dest fexp env))
-	  (snippet (append (list `(jmp-false ,testv ,Lfalse))
+	  (snippet (append (list `(compare/jmp = ,Lfalse ,testv ,(lit 0)))
 			   ti
 			   (list (if tail? `(ret ,dest) `(jmp ,Ldone))
 				 Lfalse)
@@ -242,7 +242,7 @@
      (match-define (snippet bodyi bodyd bodyv) (translate-exp #f (fresh-reg) `(begin ,@body) env))
      (snippet (append (list Ltop)
 		      testi
-		      (list `(jmp-false ,testv ,Ldone))
+		      (list `(compare/jmp = ,Ldone ,testv ,(lit 0)))
 		      bodyi
 		      (list `(jmp ,Ltop)
 			    Ldone))

@@ -27,7 +27,6 @@
 (require "linker.rkt")
 (require "asm-arm7.rkt")
 (require (only-in "machine.rkt" machine-description))
-(require "unsigned.rkt")
 
 (provide machine-arm7)
 
@@ -212,21 +211,8 @@
 	  (append-map expander init-arg-instrs)
 	  (append-map expander instrs)))
 
-;; TODO: lift this away from being machine specific. Generally, do
-;; constant-folding.
 (define (evaluate-cmpop cmpop n m)
-  (define opfn (case cmpop
-		 ((<=s) <=)
-		 ((<s) <)
-		 ((<=u) <=u32)
-		 ((>u) >u32)
-		 ((=) =)
-		 ((<>) (lambda (a b) (not (= a b))))
-		 ((>s) >)
-		 ((>=s) >=)
-		 ((>u) >u32)
-		 ((>=u) >=u32)))
-  (bool->bit (opfn n m)))
+  (bool->bit (evaluate-cmpop32 cmpop n m)))
 
 (define (expand-temporary-loads-and-stores instrs)
   (define (shuffle-for-two-args make-instr target s1 s2)
@@ -262,12 +248,20 @@
 		(define r (fresh-reg))
 		(list `(move-word ,r ,s2)
 		      `(w* ,target ,s1 ,r))]
-	       [`(compare ,cmpop ,target ,(? lit? n) ,(? lit? m))
+	       [`(compare/set ,cmpop ,target ,(? lit? n) ,(? lit? m))
 		(list `(move-word ,target ,(lit (evaluate-cmpop cmpop (lit-val n) (lit-val m)))))]
-	       [`(compare ,cmpop ,target ,(? memory-location? n) ,(? memory-location? m))
+	       [`(compare/jmp ,cmpop ,target ,(? lit? n) ,(? lit? m))
+		(if (not (zero? (evaluate-cmpop cmpop (lit-val n) (lit-val m))))
+		    (list `(jmp ,target))
+		    (list))]
+	       [`(compare/set ,cmpop ,target ,(? memory-location? n) ,(? memory-location? m))
 		(define r (fresh-reg))
 		(list `(move-word ,r ,m)
-		      `(compare ,cmpop ,target ,n ,r))]
+		      `(compare/set ,cmpop ,target ,n ,r))]
+	       [`(compare/jmp ,cmpop ,target ,(? memory-location? n) ,(? memory-location? m))
+		(define r (fresh-reg))
+		(list `(move-word ,r ,m)
+		      `(compare/jmp ,cmpop ,target ,n ,r))]
 	       [`(,(and op (or 'load-word 'load-byte)) ,(temporary n) ,source ,offset)
 		(define r (fresh-reg))
 		(list `(,op ,r ,source ,offset)
@@ -314,6 +308,18 @@
 
 (define (compute-sp-delta most-tail-args temp-count)
   (+ (frame-pad-words most-tail-args) (frame-pad-words temp-count)))
+
+(define (comparison-code cmpop real-s1 real-s2 k)
+  (define cc (case cmpop
+	       ((<=s) 'le) ((<s) 'lt)
+	       ((<=u) 'ls) ((<u) 'lo)
+	       ((=) 'eq) ((<>) 'ne)
+	       ((>s) 'gt) ((>=s) 'ge)
+	       ((>u) 'hi) ((>=u) 'hs)))
+  (nodata (cons (if (and (number? real-s2) (negative? real-s2))
+		    (*cmn 'al real-s1 (- real-s2))
+		    (*cmp 'al real-s1 real-s2))
+		(k cc))))
 
 (define ((assemble-instr inward-arg-count most-tail-args temp-count leaf?) i)
   (define sp-delta (compute-sp-delta most-tail-args temp-count))
@@ -410,31 +416,17 @@
 					       [(<<) shift-val]
 					       [(>>u) (@lsr shift-val)]
 					       [(>>s) (@asr shift-val)]))))]
-    [`(compare ,cmpop ,target ,s1 ,s2)
-     ;; Let wolog cmpop be <. Then we wish to compute s1 - s2 and have
-     ;; the comparison be true if the result of subtraction is
-     ;; negative. Now, (*op 'cmp source target) is based around target
-     ;; - source, so we need to make sure the arguments are in the
-     ;; correct order.
-     (define cc (case cmpop
-		  ((<=s) 'le) ((<s) 'lt)
-		  ((<=u) 'ls) ((<u) 'lo)
-		  ((=) 'eq) ((<>) 'ne)
-		  ((>s) 'gt) ((>=s) 'ge)
-		  ((>u) 'hi) ((>=u) 'hs)))
-     (define real-s2 (xs s2))
-     (nodata (list (if (and (number? real-s2) (negative? real-s2))
-		       (*cmn 'al (xs s1) (- real-s2))
-		       (*cmp 'al (xs s1) real-s2))
-		   (*mov 'al 0 (xs target) 0)
-		   (*mov cc 0 (xs target) 1)))]
+    [`(compare/set ,cmpop ,target ,s1 ,s2)
+     (comparison-code cmpop (xs s1) (xs s2)
+		      (lambda (cc)
+			(list (*mov 'al 0 (xs target) 0)
+			      (*mov cc 0 (xs target) 1))))]
+    [`(compare/jmp ,cmpop ,(label tag) ,s1 ,s2)
+     (comparison-code cmpop (xs s1) (xs s2)
+		      (lambda (cc)
+			(list (*b cc (label-reference tag)))))]
     [(label tag)
      (nodata (label-anchor tag))]
-    [`(jmp-false ,(preg val) ,(label tag))
-     (nodata (list (*cmp 'al val 0)
-		   (*b 'eq (label-reference tag))))]
-    [`(jmp-false ,(lit 0) ,(label tag))		(nodata (*b 'al (label-reference tag)))]
-    [`(jmp-false ,(lit _) ,(label tag))		(nodata '())]
     [`(jmp ,(label tag))			(nodata (*b 'al (label-reference tag)))]
     [`(ret ,(preg 'r0))
      (nodata (list (if (or leaf? (zero? sp-delta)) '() (*add 'al 0 'sp 'sp sp-delta))
