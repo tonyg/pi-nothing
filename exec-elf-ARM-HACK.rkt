@@ -150,7 +150,7 @@
 	    link-map)
   (disassemble-bytes! linked
   		      #:arch (machine-description-architecture md)
-  		      #:base 0) ;; should be start-addr, not 0
+  		      #:base start-addr)
   linked)
 
 (define (pad-to bs multiple)
