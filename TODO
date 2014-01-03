@@ -1,3 +1,52 @@
+2014-01-04 10:05:54 tonyg Register allocation in the presence of
+infinite loops is a bit weird. Consider this procedure, for example:
+
+    (define (error/argument code arg)
+      (while 1
+	(pulse-bits code)
+	(pulse-bits arg)
+	(long-delay)))
+
+The resulting LIR instructions:
+
+    '(peepholed-instrs
+      ((move-word #s(preg r2) #s(preg r4))
+       (move-word #s(preg r1) #s(preg r5))
+       (move-word #s(preg r3) #s(preg r7))
+       (move-word #s(temporary 2) #s(preg r10))
+       (move-word #s(temporary 1) #s(preg r11))
+       (move-word #s(temporary 0) #s(preg lr))
+       (move-word #s(preg r4) #s(preg r0))
+       (move-word #s(preg r5) #s(preg r1))
+       #s(label L161)
+       (move-word #s(preg r0) #s(preg r4))
+       (call #s(preg r0) #s(label pulse-bits) (#s(preg r0)))
+       (move-word #s(preg r0) #s(preg r5))
+       (call #s(preg r0) #s(label pulse-bits) (#s(preg r0)))
+       (call #s(preg r0) #s(label long-delay) ())
+       (jmp #s(label L161))
+       #s(label L162)
+       (move-word #s(preg r0) #s(lit 0))
+       (move-word #s(preg r4) #s(preg r2))
+       (move-word #s(preg r5) #s(preg r1))
+       (move-word #s(preg r7) #s(preg r3))
+       (move-word #s(preg r10) #s(temporary 2))
+       (move-word #s(preg r11) #s(temporary 1))
+       (move-word #s(preg lr) #s(temporary 0))
+       (ret #s(preg r0))))
+
+Because the comparison for exiting the while loop has been STATICALLY
+ELIDED, the (raw-live-ranges) routine in lir.rkt decides that the
+virtual registers being used to save away callee-save registers are
+*not live*, which leads the register allocator to make suboptimal
+(mad!) mappings for them. It's not a bug, per se: keeping the dynamic
+loop exit check results in sane mappings, as expected. A good "fix"
+for it would be to eliminate instructions that define a virtual
+register that is never used. Care must be taken not to eliminate
+instructions with side-effects (e.g. memory writes), however!
+
+-=-=-=-
+
 rename (use) to (kill-reg) in lir for register allocation
 
 figure out whether the no-kills-on-tail-call-restoration-of-saves is
