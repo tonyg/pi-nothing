@@ -7,7 +7,7 @@
   (let ((mutable p p)
 	(mutable count 0)
 	(mutable ch (?byte p)))
-    (while ch
+    (while (<> ch 0)
       (set! count (+ count 1))
       (set! p (+ p 1))
       (set! ch (?byte p)))

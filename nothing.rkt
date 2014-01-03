@@ -83,13 +83,51 @@
 	    (translate-exp #f (fresh-reg) (car rands) env)
 	    (cdr rands))]))
 
-(define (cmp2 dest env rator a b)
-  (seq ([av (translate-exp #f (fresh-reg) a env)]
-	[bv (translate-exp #f (fresh-reg) b env)])
-       (snip dest `(compare/set ,rator ,dest ,av ,bv))))
-
 (define (lookup varname env)
   (findf (lambda (b) (equal? varname (binding-name b))) env))
+
+(define (translate-comparison target-t target-f run-through-on-true exp env)
+  ;; Both target-t and target-f have to be real targets. Because a jmp
+  ;; to one or the other will be a no-op, run-through-on-true is set
+  ;; to #t if a `(jmp ,target-t) would be pointless, or #f if `(jmp
+  ;; ,target-f) would be pointless.
+  (define (cmp2 rator a b)
+    (define cmpop (if run-through-on-true (negate-cmpop rator) rator))
+    (define target (if run-through-on-true target-f target-t))
+    (seq ([av (translate-exp #f (fresh-reg) a env)]
+	  [bv (translate-exp #f (fresh-reg) b env)])
+	 (snip (lit 0) `(compare/jmp ,cmpop ,target ,av ,bv))))
+  (define (jmp-t) (if run-through-on-true (snip (lit 0)) (snip (lit 0) `(jmp ,target-t))))
+  (define (jmp-f) (if run-through-on-true (snip (lit 0) `(jmp ,target-f)) (snip (lit 0))))
+  (match exp
+    [`(<=s ,a ,b) (cmp2 '<=s a b)]
+    [`(<s ,a ,b) (cmp2 '<s a b)]
+    [`(<=u ,a ,b) (cmp2 '<=u a b)]
+    [`(<u ,a ,b) (cmp2 '<u a b)]
+    [`(= ,a ,b) (cmp2 '= a b)]
+    [`(<> ,a ,b) (cmp2 '<> a b)]
+    [`(>s ,a ,b) (cmp2 '>s a b)]
+    [`(>=s ,a ,b) (cmp2 '>=s a b)]
+    [`(>u ,a ,b) (cmp2 '>u a b)]
+    [`(>=u ,a ,b) (cmp2 '>=u a b)]
+
+    [`(lognot ,rand) (translate-comparison target-f target-t (not run-through-on-true) rand env)]
+
+    [`(logand) (jmp-t)]
+    [`(logand ,r) (translate-comparison target-t target-f run-through-on-true r env)]
+    [`(logand ,r ,rands ...)
+     (define Lta (fresh-label))
+     (seq ([av (translate-comparison Lta target-f #t r env)]
+	   [labeldef (snip (lit 0) Lta)])
+	  (translate-comparison target-t target-f run-through-on-true `(logand ,@rands) env))]
+
+    [`(logor) (jmp-f)]
+    [`(logor ,r) (translate-comparison target-t target-f run-through-on-true r env)]
+    [`(logor ,r ,rands ...)
+     (define Lfa (fresh-label))
+     (seq ([av (translate-comparison target-t Lfa #f r env)]
+	   [labeldef (snip (lit 0) Lfa)])
+	  (translate-comparison target-t target-f run-through-on-true `(logor ,@rands) env))]))
 
 (define (translate-exp tail? dest exp env)
   (match exp
@@ -167,18 +205,6 @@
      (error 'translate-exp "(%) needs two or more arguments")]
     [`(% ,rands ...) (op2 tail? dest env 'wmod (void) rands)]
 
-    [`(<=s ,a ,b) (cmp2 dest env '<=s a b)]
-    [`(<s ,a ,b) (cmp2 dest env '<s a b)]
-    [`(<=u ,a ,b) (cmp2 dest env '<=u a b)]
-    [`(<u ,a ,b) (cmp2 dest env '<u a b)]
-    [`(= ,a ,b) (cmp2 dest env '= a b)]
-    [`(<> ,a ,b) (cmp2 dest env '<> a b)]
-    [`(>s ,a ,b) (cmp2 dest env '>s a b)]
-    [`(>=s ,a ,b) (cmp2 dest env '>=s a b)]
-    [`(>u ,a ,b) (cmp2 dest env '>u a b)]
-    [`(>=u ,a ,b) (cmp2 dest env '>=u a b)]
-
-    ;; TODO: logand, logor, logxor
     [`(binand ,rands ...) (op2 tail? dest env 'wand -1 rands)]
     [`(binor ,rands ...) (op2 tail? dest env 'wor 0 rands)]
     [`(binxor ,rands ...) (op2 tail? dest env 'wxor 0 rands)]
@@ -191,12 +217,6 @@
      (seq ([v (translate-exp #f dest rand env)])
 	  (snip dest `(wnot ,dest ,dest)))]
 
-    [`(lognot ,rand) ;; TODO: anding with 1 assumes 0/1 booleans
-     (seq ([v (translate-exp #f dest rand env)])
-	  (snip dest
-		`(wnot ,dest ,dest)
-		`(wand ,dest ,dest ,(lit 1))))]
-
     [`(return ,exp)
      (seq ([v (translate-exp #t dest exp env)])
 	  (snip dest `(ret ,v)))]
@@ -205,22 +225,24 @@
      ;; TODO: decide what to do wrt putting a value into dest in the
      ;; case that the test evaluates to false. At the moment it uses
      ;; whatever junk is lying around (!)
+     (define Ltrue (fresh-label))
      (define Ldone (fresh-label))
-     (seq ([testv (translate-exp #f (fresh-reg) test env)])
+     (seq ([testv (translate-comparison Ltrue Ldone #t test env)])
 	  (match-define (snippet bi bd bv) (translate-exp tail? dest `(begin ,@body) env))
-	  (snippet (append (list `(compare/jmp = ,Ldone ,testv ,(lit 0)))
+	  (snippet (append (list Ltrue)
 			   bi
 			   (list Ldone))
 		   bd
 		   dest))]
 
     [`(if ,test ,texp ,fexp)
+     (define Ltrue (fresh-label))
      (define Lfalse (fresh-label))
      (define Ldone (fresh-label))
-     (seq ([testv (translate-exp #f (fresh-reg) test env)])
+     (seq ([testv (translate-comparison Ltrue Lfalse #t test env)])
 	  (match-define (snippet ti td tv) (translate-exp tail? dest texp env))
 	  (match-define (snippet fi fd fv) (translate-exp tail? dest fexp env))
-	  (snippet (append (list `(compare/jmp = ,Lfalse ,testv ,(lit 0)))
+	  (snippet (append (list Ltrue)
 			   ti
 			   (list (if tail? `(ret ,dest) `(jmp ,Ldone))
 				 Lfalse)
@@ -237,12 +259,13 @@
 
     [`(while ,test ,body ...)
      (define Ltop (fresh-label))
+     (define Lbodystart (fresh-label))
      (define Ldone (fresh-label))
-     (match-define (snippet testi testd testv) (translate-exp #f (fresh-reg) test env))
+     (match-define (snippet testi testd testv) (translate-comparison Lbodystart Ldone #t test env))
      (match-define (snippet bodyi bodyd bodyv) (translate-exp #f (fresh-reg) `(begin ,@body) env))
      (snippet (append (list Ltop)
 		      testi
-		      (list `(compare/jmp = ,Ldone ,testv ,(lit 0)))
+		      (list Lbodystart)
 		      bodyi
 		      (list `(jmp ,Ltop)
 			    Ldone))

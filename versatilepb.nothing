@@ -39,14 +39,14 @@
 
 (define (division-by-zero a b)
   (puts (data #"Division by zero\0"))
-  (while 1))
+  (while (= 0 0)))
 
 (define (putc ch)
-  (while (binand (? (+ uart0 uart-fr)) uart-flag-tx-fifo-full))
+  (while (<> (binand (? (+ uart0 uart-fr)) uart-flag-tx-fifo-full) 0))
   (! (+ uart0 uart-dr) ch))
 
 (define (poll-for-char)
-  (if (binand (? (+ uart0 uart-fr)) uart-flag-rx-fifo-empty)
+  (if (<> (binand (? (+ uart0 uart-fr)) uart-flag-rx-fifo-empty) 0)
       -1
       (? (+ uart0 uart-dr))))
 
@@ -58,18 +58,18 @@
 
 (define (puts p)
   (let ((ch (?byte p)))
-    (when ch
+    (when (<> ch 0)
       (putc ch)
       (puts (+ p 1)))))
 
 (define (putn* i)
-  (if i
+  (if (<> i 0)
       (begin (putn* (/ i 10))
 	     (putc (+ (% i 10) 48)))
       0))
 
 (define (putn i)
-  (if i
+  (if (<> i 0)
       (putn* i)
       (putc 48)))
 
@@ -218,7 +218,7 @@
 
 (define (configure-pci)
   ;; http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.dui0224i/Cacdijji.html
-  (if (binand 1 (? #x10000044))
+  (if (<> (binand 1 (? #x10000044)) 0)
       (let ((self-slot (find-self-slot)))
 	(puts (data #"PCI configuration\n\n\0"))
 	(puts (data #"Self-slot: \0")) (putn self-slot) (newline)
@@ -241,7 +241,7 @@
   (configure-pci)
   (newline)
   (puts (data #"Hello, world!\n\0"))
-  (while 1
+  (while (= 0 0)
     (let ((ch (getc)))
       (puts (data #"You typed: \0"))
       (putc ch)

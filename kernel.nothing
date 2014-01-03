@@ -39,7 +39,7 @@
   (pulse-bits-forever code))
 
 (define (error/argument code arg)
-  (while 1
+  (while (= 0 0)
     (pulse-bits code)
     (pulse-bits arg)
     (long-delay)))
@@ -53,7 +53,7 @@
 
 (define (delay-countdown v)
   (let ((mutable n v))
-    (while n
+    (while (>u n 0)
       (set! n (- n 1)))))
 
 (define (short-delay)
@@ -84,22 +84,22 @@
 		    (<< %gpio-pin-control-output 18))))))
 
 (define (set-led! state)
-  (! (+ %gpio-base (if state %gpio-pin-output-clear-0 %gpio-pin-output-set-0))
+  (! (+ %gpio-base (if (<> state 0) %gpio-pin-output-clear-0 %gpio-pin-output-set-0))
      (<< 1 16)))
 
 (define (pulse-bits bitfield)
-  (if bitfield
+  (if (<> bitfield 0)
       (let ((bit (binand bitfield 1)))
 	(pulse-bits (>>u bitfield 1))
 	(set-led! 1)
-	(if bit (long-delay) (short-delay))
+	(if (<> bit 0) (long-delay) (short-delay))
 	(set-led! 0)
 	(short-delay))
       (begin (set-led! 0)
 	     (long-delay))))
 
 (define (pulse-bits-forever bitfield)
-  (while 1 (pulse-bits bitfield)))
+  (while (= 0 0) (pulse-bits bitfield)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -153,14 +153,14 @@
   ;; TODO: what kinds of memory barriers are needed here and in
   ;; mailbox-recv? See http://elinux.org/RPi_Framebuffer.
   (when (>=u mailbox-channel 16) (error %error-bad-mailbox-channel))
-  (when (binand message-pointer 15) (error %error-bad-mailbox-pointer))
-  (while (binand (mailbox-status) (<< 1 31)))
+  (when (<> (binand message-pointer 15) 0) (error %error-bad-mailbox-pointer))
+  (while (<> (binand (mailbox-status) (<< 1 31)) 0))
   (! (+ %mailbox-base %mailbox-reg-write)
      (binor mailbox-channel message-pointer)))
 
 (define (mailbox-recv mailbox-channel)
   (when (>=u mailbox-channel 16) (error %error-bad-mailbox-channel))
-  (while (binand (mailbox-status) (<< 1 30)))
+  (while (<> (binand (mailbox-status) (<< 1 30)) 0))
   (let ((pointer-and-channel (? (+ %mailbox-base %mailbox-reg-read))))
     (when (<> (binand pointer-and-channel 15) mailbox-channel)
       (error %error-unexpected-mailbox-message))
@@ -267,7 +267,7 @@
     (! (+ fbinfo framebuffer-description-size) 0)
     (mailbox-send! %channel-framebuffer (pointer->gpu-pointer fbinfo))
     (let ((result (mailbox-recv %channel-framebuffer)))
-      (when result (error/argument %error-framebuffer-mode-set-failed result))
+      (when (<> result 0) (error/argument %error-framebuffer-mode-set-failed result))
       (! (+ fbinfo framebuffer-description-pointer)
 	 (gpu-pointer->pointer (? (+ fbinfo framebuffer-description-pointer))))
       fbinfo)))
@@ -314,7 +314,7 @@
 
 (define (console-puts con p)
   (let ((ch (?byte p)))
-    (when ch
+    (when (<> ch 0)
       (console-putc con ch)
       (console-puts con (+ p 1)))))
 
@@ -322,13 +322,13 @@
   (console-putc con 10))
 
 (define (console-putn* con i)
-  (if i
+  (if (<> i 0)
       (begin (console-putn* con (/ i 10))
 	     (console-putc con (+ (% i 10) 48)))
       0))
 
 (define (console-putn i)
-  (if i
+  (if (<> i 0)
       (console-putn* i)
       (console-putc 48)))
 
@@ -377,7 +377,7 @@
 		(mutable pixel 0)
 		(row (?byte p)))
 	    (while (<u pixel (<< 1 %char-width-shift))
-	      (! target (if (binand row (<< 1 pixel)) color 0))
+	      (! target (if (<> (binand row (<< 1 pixel)) 0) color 0))
 	      (set! pixel (+ pixel 1))
 	      (set! target (+ target pixwidth)))
 	  (set! p (+ p 1))
