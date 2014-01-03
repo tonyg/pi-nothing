@@ -185,6 +185,7 @@
   (define (propagate-liveness in)
     (instr-fold-rev (lambda (counter instr in)
 		      (define-values (killable defs uses) (def-use instr))
+		      ;; (write `(,counter ,instr ::: ,killable ,defs ,uses)) (newline)
 		      (hash-set in counter (set-union (set-subtract (live-out in counter) defs)
 						      uses)))
 		    in
