@@ -26,7 +26,7 @@
 (require (only-in racket/file file->list))
 (require (only-in racket/list make-list append-map))
 
-(require (planet tonyg/bitsyntax))
+(require bitsyntax)
 
 (require "driver.rkt")
 (require "linker.rkt")
