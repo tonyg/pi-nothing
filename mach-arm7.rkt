@@ -84,8 +84,7 @@
      (define argcount (length arg))
      (define calltype (if (eq? op 'tailcall) 'tail 'nontail))
      (define (mkarg i) ((outward-argument-location cc) calltype argcount i))
-     (append ;; Note no mention of r12 here, unlike the i386/x86_64 backends.
-	     (do ((i 0 (+ i 1))
+     (append (do ((i 0 (+ i 1))
 		  (arg arg (cdr arg))
 		  (acc '() (cons `(move-word ,(mkarg i) ,(car arg))
 				 acc)))
@@ -302,7 +301,6 @@
      (nodata (list (if (zero? sp-delta) '() (*add 'al 0 'sp 'sp sp-delta))
 		   (*mov 'al 0 'pc 'lr)))]
     [`(call ,(preg 'r0) ,target ,args)
-     (define outward-arg-count (length args))
      (nodata (match target
 	       [(preg r) (*blx 'al r)]
 	       [(label tag) (*bl 'al (label-reference tag))]))]
