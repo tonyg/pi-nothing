@@ -105,6 +105,7 @@
 	 make-location-resolver)
 
 (struct calling-convention (argument-regs ;; (Listof Register)
+			    stack-slots-for-argument-regs? ;; Boolean
 			    sp-relative-location ;; (Integer -> Location)
 			    word-size ;; Natural, count of bytes
 			    frame-alignment ;; Natural, count of bytes
@@ -115,14 +116,22 @@
   (< i (length (calling-convention-argument-regs cc))))
 
 (define ((inward-argument-location cc) i)
-  (if (argument-passed-in-register? cc i)
-      (preg (list-ref (calling-convention-argument-regs cc) i))
-      (inward-arg i)))
+  (cond
+   [(argument-passed-in-register? cc i)
+    (preg (list-ref (calling-convention-argument-regs cc) i))]
+   [(calling-convention-stack-slots-for-argument-regs? cc)
+    (inward-arg i)]
+   [else
+    (inward-arg (- i (length (calling-convention-argument-regs cc))))]))
 
 (define ((outward-argument-location cc) calltype count i)
-  (if (argument-passed-in-register? cc i)
-      (preg (list-ref (calling-convention-argument-regs cc) i))
-      (outward-arg calltype count i)))
+  (cond
+   [(argument-passed-in-register? cc i)
+    (preg (list-ref (calling-convention-argument-regs cc) i))]
+   [(calling-convention-stack-slots-for-argument-regs? cc)
+    (outward-arg calltype count i)]
+   [else
+    (outward-arg calltype count (- i (length (calling-convention-argument-regs cc))))]))
 
 (define (frame-pad-words cc n)
   (round-up-to-nearest (calling-convention-frame-alignment cc)
@@ -166,6 +175,7 @@
   (let () ;; ARM calling conventions
     (local-require "asm-arm7.rkt")
     (define cc (calling-convention '(r0 r1 r2 r3)
+				   #t
 				   (lambda (delta)
 				     (@reg 'sp
 					   (if (negative? delta) '- '+)
