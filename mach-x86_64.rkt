@@ -117,6 +117,9 @@
 	  (append-map expander init-arg-instrs)
 	  (append-map expander instrs)))
 
+(define (evaluate-cmpop cmpop n m)
+  (if (evaluate-cmpop32 cmpop n m) 1 0))
+
 (define (expand-temporary-loads-and-stores instrs)
   (define (shuffle-for-two-args make-instr target s1 s2)
     (cond
@@ -142,6 +145,12 @@
 				      target
 				      s1
 				      s2)]
+	       [`(compare/set ,cmpop ,target ,(? lit? n) ,(? lit? m))
+		(list `(move-word ,target ,(lit (evaluate-cmpop cmpop (lit-val n) (lit-val m)))))]
+	       [`(compare/jmp ,cmpop ,target ,(? lit? n) ,(? lit? m))
+		(if (not (zero? (evaluate-cmpop cmpop (lit-val n) (lit-val m))))
+		    (list `(jmp ,target))
+		    (list))]
 	       [`(compare/set ,cmpop ,target ,(? memory-location? n) ,(? memory-location? m))
 		(define r (fresh-reg))
 		(list `(move-word ,r ,m)
@@ -220,7 +229,6 @@
 (define (assemble inward-arg-count most-tail-args temp-count leaf? instrs)
   (define xs (make-location-resolver cc inward-arg-count most-tail-args temp-count leaf?))
   (define sp-delta (if leaf? 0 (compute-sp-delta cc most-tail-args temp-count)))
-  (write `(assemble with sp-delta ,sp-delta)) (newline) (flush-output)
   (values (list (if (zero? sp-delta) '() (*op 'sub sp-delta 'rsp))
 		(map (assemble-instr* xs sp-delta) instrs))
 	  '()))
