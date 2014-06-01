@@ -26,27 +26,29 @@
 (require "lir.rkt")
 (require "linker.rkt")
 (require "asm-i386.rkt")
+(require "tailcall.rkt")
 (require (only-in "machine.rkt" machine-description))
 
 (provide machine-i386)
 
+(define cc (calling-convention '()
+			       0
+			       (lambda (delta) (@reg 'esp delta))
+			       4
+			       16
+			       8 ;; ebp + eip
+			       4 ;; space for ebp that we don't use right now
+			       ))
+
 ;; At the moment putting the preferred register later in the list
 ;; makes it tried first. See the details of how the recursion in
 ;; find-available-register works.
-(define available-regs (map preg (list 'ebx 'ecx 'edx 'esi 'edi 'eax)))
-
-(define word-size-bytes 4)
-(define frame-alignment 16) ;; must be a power of two
-(define linkage-size 8) ;; ebp + eip
+(define available-regs (map preg (list 'ebx 'ecx 'edx 'esi 'edi 'eax
+				       ;; 'ebp ;; TODO: add EBP?
+				       )))
 
 (define killed-regs '(eax edx ecx))
 (define saved-regs '(ebx esi edi))
-
-(define (inward-argument-location i)
-  (inward-arg i))
-
-(define (outward-argument-location calltype count i)
-  (outward-arg calltype count i))
 
 (define ((expand-instruction saved-locs) instr)
   (match instr
@@ -76,12 +78,8 @@
     [`(,(and op (or 'call 'tailcall)) ,target ,label (,arg ...))
      (define argcount (length arg))
      (define calltype (if (eq? op 'tailcall) 'tail 'nontail))
-     (define (mkarg i) (outward-argument-location calltype argcount i))
-     (append (if (eq? calltype 'tail)
-		 (list `(use ,(preg 'eax))) ;; need a scratch reg
-		 (list))
-	     (list `(prepare-call ,calltype ,argcount))
-	     (do ((i 0 (+ i 1))
+     (define (mkarg i) ((outward-argument-location cc) calltype argcount i))
+     (append (do ((i 0 (+ i 1))
 		  (arg arg (cdr arg))
 		  (acc '() (cons `(move-word ,(mkarg i) ,(car arg))
 				 acc)))
@@ -92,8 +90,7 @@
 		  ;;(map (lambda (name) `(use ,(preg name))) saved-regs)
 		  )
 		 (list))
-	     (list `(,op ,(preg 'eax) ,label ,(map mkarg (iota argcount)))
-		   `(cleanup-call ,calltype ,argcount))
+	     (list `(,op ,(preg 'eax) ,label ,(map mkarg (iota argcount))))
 	     (map (lambda (name) `(move-word ,(preg name) ,(junk))) killed-regs)
 	     (map (lambda (name) `(use ,(preg name))) killed-regs)
 	     (list`(move-word ,target ,(preg 'eax))))]
@@ -106,6 +103,9 @@
   (append (map (lambda (loc name) `(move-word ,loc ,(preg name))) saved-locs saved-regs)
 	  (append-map expander init-arg-instrs)
 	  (append-map expander instrs)))
+
+(define (evaluate-cmpop cmpop n m)
+  (if (evaluate-cmpop32 cmpop n m) 1 0))
 
 (define (expand-temporary-loads-and-stores instrs)
   (define (shuffle-for-two-args make-instr target s1 s2)
@@ -132,6 +132,12 @@
 				      target
 				      s1
 				      s2)]
+	       [`(compare/set ,cmpop ,target ,(? lit? n) ,(? lit? m))
+		(list `(move-word ,target ,(lit (evaluate-cmpop cmpop (lit-val n) (lit-val m)))))]
+	       [`(compare/jmp ,cmpop ,target ,(? lit? n) ,(? lit? m))
+		(if (not (zero? (evaluate-cmpop cmpop (lit-val n) (lit-val m))))
+		    (list `(jmp ,target))
+		    (list))]
 	       [`(compare/set ,cmpop ,target ,(? memory-location? n) ,(? memory-location? m))
 		(define r (fresh-reg))
 		(list `(move-word ,r ,m)
@@ -163,18 +169,7 @@
   (cons (*op 'cmp real-s2 real-s1)
 	(k cc)))
 
-(define ((assemble-instr inward-arg-count temp-count) i)
-  (define (xs v)
-    (match v
-      [(lit n) n]
-      [(label tag) (label-reference tag)]
-      [(preg r) r]
-      [(temporary n) (@reg 'ebp (- (* word-size-bytes (+ n 1))))]
-      [(inward-arg n) (@reg 'ebp (* word-size-bytes (+ n 2)))]
-      [(outward-arg 'nontail _ n) (@reg 'esp (* word-size-bytes n))]
-      [(outward-arg 'tail outward-arg-count n)
-       (@reg 'ebp (* word-size-bytes (- (+ n 2) (- outward-arg-count inward-arg-count))))]
-      ))
+(define ((assemble-instr xs sp-delta) i)
   (match i
     [`(move-word ,target ,source)			(*mov (xs source) (xs target))]
     [`(load-word ,(preg target) ,(lit n) ,ofs)		(*mov (@imm (+ n ofs)) target)]
@@ -191,66 +186,38 @@
      (comparison-code cmpop (xs s1) (xs s2)
 		      (lambda (cc)
 			(list (*jmp-cc cc (label-reference tag)))))]
-    [`(prepare-call nontail ,arg-count)
-     (if (zero? arg-count)
-	 '()
-	 (*op 'sub (round-up-to-nearest frame-alignment (* arg-count word-size-bytes)) 'esp))]
-    [`(prepare-call tail ,arg-count)
-     (define delta (- arg-count inward-arg-count))
-     ;; move saved ebp and saved eip DOWN in memory by delta words
-     ;; because ebp is lower in memory, move it first
-     ;; eax is our scratch reg by convention - see expand-instructions
-     (if (zero? delta)
-	 '()
-	 (list (*mov (@reg 'ebp 0) 'eax)
-	       (*mov 'eax (@reg 'ebp (- (* delta word-size-bytes))))
-	       (*mov (@reg 'ebp word-size-bytes) 'eax)
-	       (*mov 'eax (@reg 'ebp (+ word-size-bytes (- (* delta word-size-bytes)))))))]
-    [`(cleanup-call nontail ,arg-count)
-     (if (zero? arg-count)
-	 '()
-	 (*op 'add (round-up-to-nearest frame-alignment (* arg-count word-size-bytes)) 'esp))]
-    [`(cleanup-call tail ,_)				'()]
     [(label tag)					(label-anchor tag)]
     [`(jmp ,(label tag))				(*jmp (label-reference tag))]
-    [`(ret ,(preg 'eax))				(list (*leave) (*ret))]
+    [`(ret ,(preg 'eax))
+     (list (if (zero? sp-delta) '() (*op 'add sp-delta 'esp))
+	   (*ret))]
     [`(call ,(preg 'eax) ,(label tag) ,_)		(*call (label-reference tag))]
     [`(tailcall ,(preg 'eax) ,(label tag) ,args)
-     (define delta (- (length args) inward-arg-count))
-     (list (if (zero? delta)
-	       '()
-	       (*op 'sub (* delta word-size-bytes) 'ebp))
-	   (*leave)
+     (list (if (zero? sp-delta) '() (*op 'add sp-delta 'esp))
 	   (*jmp (label-reference tag)))]
     [_ (error 'assemble-instr "Cannot assemble ~v" i)]))
 
-(define ((assemble-instr* inward-arg-count temp-count) i)
-  (define bs ((assemble-instr inward-arg-count temp-count) i))
+(define ((assemble-instr* xs sp-delta) i)
+  (define bs ((assemble-instr xs sp-delta) i))
   (write `(,i -> ,bs))
   (newline)
   (flush-output)
   bs)
 
 (define (assemble inward-arg-count most-tail-args temp-count leaf? instrs)
-  (define shuffle-space (* (- most-tail-args inward-arg-count) word-size-bytes))
-  (define temp-size (* temp-count word-size-bytes))
-  (define total-requirement (+ shuffle-space temp-size linkage-size))
-  (define frame-size (round-up-to-nearest frame-alignment total-requirement))
-  (define delta (- frame-size linkage-size))
-
-  (values (list (*push 'ebp)
-		(*mov 'esp 'ebp)
-		(*op 'sub delta 'esp)
-		(map (assemble-instr* inward-arg-count temp-count) instrs))
+  (define xs (make-location-resolver cc inward-arg-count most-tail-args temp-count leaf?))
+  (define sp-delta (if leaf? 0 (compute-sp-delta cc most-tail-args temp-count)))
+  (values (list (if (zero? sp-delta) '() (*op 'sub sp-delta 'esp))
+		(map (assemble-instr* xs sp-delta) instrs))
 	  '()))
 
 (define machine-i386
   (machine-description 'i386
-		       word-size-bytes
+		       (calling-convention-word-size cc)
 		       _int32
 		       available-regs
-		       inward-argument-location
-		       outward-argument-location
+		       (inward-argument-location cc)
+		       (outward-argument-location cc)
 		       expand-instructions
 		       expand-temporary-loads-and-stores
 		       assemble))
