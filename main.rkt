@@ -107,9 +107,11 @@
     `(+ (fib 2) (fib 1))
     `((fib ,(label 'FIB))))
 
-(te '() `(if (if (<s 11 22) 33 44) 55 66) '())
+(te '() `(if (<> (if (<s 11 22) 33 44) 0) 55 66) '())
 (te '()
-    `(cond [(A) 11] [(B) 22] [(C) 33])
+    `(cond [(<> (A) 0) 11]
+	   [(<> (B) 0) 22]
+	   [(<> (C) 0) 33])
     `((A ,(label 'A))
       (B ,(label 'B))
       (C ,(label 'C))))
@@ -123,7 +125,8 @@
 (te '() `(x (x (x))) `((x ,(label 'X))))
 
 ;;---------------------------------------------------------------------------
-;; TODO: ARM calling convention is broken for these examples.
+;; TODO: ARM calling convention could be better for these examples.
+;; It seems to save and reload lr a lot.
 (te '(a) `(x a) `((x ,(label 'X))))
 (te '(a) `(x a a a) `((x ,(label 'X))))
 (te '(a) `(x a a a a a) `((x ,(label 'X))))
