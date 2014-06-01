@@ -22,12 +22,26 @@
 
 (provide peephole)
 
+(define (discard-until-label instrs)
+  (match instrs
+    ['() '()]
+    [(list* (? label?) rest) instrs]
+    [(list* other rest) (discard-until-label rest)]))
+
 ;; Stupidest ever
 (define (peephole instrs)
-  (filter (lambda (i)
-	    (match i
-	      [`(move-word ,_ ,(junk)) #f]
-	      [`(move-word ,x ,y) (not (equal? x y))]
-	      [`(use ,_) #f]
-	      [else #t]))
-	  instrs))
+  (match instrs
+    ['() '()]
+    [(list* `(move-word ,_ ,(junk)) rest)
+     (peephole rest)]
+    [(list* (and move-instr `(move-word ,x ,y)) rest)
+     (if (equal? x y)
+	 (peephole rest)
+	 (cons move-instr (peephole rest)))]
+    [(list* `(use ,_) rest)
+     (peephole rest)]
+    [(list* (and call-instr `(tailcall ,_ ,_ ,_)) rest)
+     (cons call-instr
+	   (peephole (discard-until-label rest)))]
+    [(list* instr rest)
+     (cons instr (peephole rest))]))
