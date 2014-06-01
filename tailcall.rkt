@@ -279,4 +279,107 @@
     (expect-loc 5 7 3 #t ((inward-argument-location cc) 4) (@reg 'sp '- 8))
 
     )
+
+  (let () ;; x86_64 calling conventions
+    (local-require "asm-x86_64.rkt")
+    (define cc (calling-convention '(rdi rsi rdx rcx r8 r9)
+				   0
+  				   (lambda (delta) (@reg 'rsp delta))
+  				   8
+  				   16 ;; must be a power of two
+				   16 ;; rbp + rip
+				   8  ;; space for rbp that we don't use right now
+				   ))
+    (define expect-loc (make-expect-loc cc))
+
+    ;; x86_64
+    ;; ---------------------------------------------------------------------------
+    ;; Upon entry to a subroutine, Ni=9, No=11, Nt=3, Na=9:
+    ;;
+    ;; (low)   outbound 6  |      NB. outbounds 0-5 in regs
+    ;;                  7  |
+    ;;                  8  |
+    ;;         padding     |
+    ;;         linkage pad |                           |__ linkage-size
+    ;;                 rip | ___/ rsp for non-leaf     |
+    ;;         temps    0  |
+    ;;                  1  |
+    ;;                  2  |
+    ;;         padding     |
+    ;;         shuffle     |
+    ;;         shuffle     |
+    ;;         inbound  6  |      NB. inbounds 0-5 in regs
+    ;;                  7  |
+    ;;                  8  |
+    ;;         padding     |
+    ;;         linkage pad | ___/ rsp for leaf         |__ entry-linkage-padding
+    ;; (high)  linkage rip |
+    ;;
+    ;;
+
+    ;; Non-leaf procedures
+
+    (expect-loc 9 11 3 #f ((outward-argument-location cc) 'nontail 9 0) 'rdi)
+    (expect-loc 9 11 3 #f ((outward-argument-location cc) 'nontail 9 5) 'r9)
+    (expect-loc 9 11 3 #f ((outward-argument-location cc) 'tail 9 0) 'rdi)
+    (expect-loc 9 11 3 #f ((outward-argument-location cc) 'tail 9 5) 'r9)
+
+    (expect-loc 9 11 3 #f ((outward-argument-location cc) 'nontail 9 6) (@reg 'rsp -48))
+    (expect-loc 9 11 3 #f ((outward-argument-location cc) 'nontail 9 7) (@reg 'rsp -40))
+    (expect-loc 9 11 3 #f ((outward-argument-location cc) 'nontail 9 8) (@reg 'rsp -32))
+
+    (expect-loc 9 11 3 #f ((outward-argument-location cc) 'tail 9 6) (@reg 'rsp 48))
+    (expect-loc 9 11 3 #f ((outward-argument-location cc) 'tail 9 7) (@reg 'rsp 56))
+    (expect-loc 9 11 3 #f ((outward-argument-location cc) 'tail 9 8) (@reg 'rsp 64))
+
+    (expect-loc 9 11 3 #f ((outward-argument-location cc) 'nontail 10 9) (@reg 'rsp -24))
+    (expect-loc 9 11 3 #f ((outward-argument-location cc) 'nontail 11 10) (@reg 'rsp -32))
+    (expect-loc 9 11 3 #f ((outward-argument-location cc) 'tail 10 9) (@reg 'rsp 72))
+    (expect-loc 9 11 3 #f ((outward-argument-location cc) 'tail 11 10) (@reg 'rsp 64))
+
+    (expect-loc 9 11 3 #f (temporary 0) (@reg 'rsp 0))
+    (expect-loc 9 11 3 #f (temporary 1) (@reg 'rsp 8))
+    (expect-loc 9 11 3 #f (temporary 2) (@reg 'rsp 16))
+    (expect-loc 9 11 4 #f (temporary 0) (@reg 'rsp 0))
+    (expect-loc 9 11 4 #f (temporary 1) (@reg 'rsp 8))
+    (expect-loc 9 11 4 #f (temporary 2) (@reg 'rsp 16))
+    (expect-loc 9 11 4 #f (temporary 3) (@reg 'rsp 24))
+
+    (expect-loc 9 11 3 #f ((inward-argument-location cc) 0) 'rdi)
+    (expect-loc 9 11 3 #f ((inward-argument-location cc) 5) 'r9)
+    (expect-loc 9 11 3 #f ((inward-argument-location cc) 6) (@reg 'rsp 48))
+    (expect-loc 9 11 3 #f ((inward-argument-location cc) 7) (@reg 'rsp 56))
+    (expect-loc 9 11 3 #f ((inward-argument-location cc) 8) (@reg 'rsp 64))
+
+    ;; Leaf procedures
+
+    (expect-loc 9 11 3 #t ((outward-argument-location cc) 'tail 9 0) 'rdi)
+    (expect-loc 9 11 3 #t ((outward-argument-location cc) 'tail 9 5) 'r9)
+
+    (check-exn #px"Nontail call in leaf procedure"
+	       (lambda ()
+		 (expect-loc 9 11 3 #t ((outward-argument-location cc) 'nontail 9 7) '???)))
+
+    (expect-loc 9 11 3 #t ((outward-argument-location cc) 'tail 9 6) (@reg 'rsp -40))
+    (expect-loc 9 11 3 #t ((outward-argument-location cc) 'tail 9 7) (@reg 'rsp -32))
+    (expect-loc 9 11 3 #t ((outward-argument-location cc) 'tail 9 8) (@reg 'rsp -24))
+
+    (expect-loc 9 11 3 #t ((outward-argument-location cc) 'tail 10 9) (@reg 'rsp -16))
+    (expect-loc 9 11 3 #t ((outward-argument-location cc) 'tail 11 10) (@reg 'rsp -24))
+
+    (expect-loc 9 11 3 #t (temporary 0) (@reg 'rsp -88))
+    (expect-loc 9 11 3 #t (temporary 1) (@reg 'rsp -80))
+    (expect-loc 9 11 3 #t (temporary 2) (@reg 'rsp -72))
+    (expect-loc 9 11 4 #t (temporary 0) (@reg 'rsp -88))
+    (expect-loc 9 11 4 #t (temporary 1) (@reg 'rsp -80))
+    (expect-loc 9 11 4 #t (temporary 2) (@reg 'rsp -72))
+    (expect-loc 9 11 4 #t (temporary 3) (@reg 'rsp -64))
+
+    (expect-loc 9 11 3 #t ((inward-argument-location cc) 0) 'rdi)
+    (expect-loc 9 11 3 #t ((inward-argument-location cc) 5) 'r9)
+    (expect-loc 9 11 3 #t ((inward-argument-location cc) 6) (@reg 'rsp -40))
+    (expect-loc 9 11 3 #t ((inward-argument-location cc) 7) (@reg 'rsp -32))
+    (expect-loc 9 11 3 #t ((inward-argument-location cc) 8) (@reg 'rsp -24))
+
+    )
   )
