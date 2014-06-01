@@ -1,0 +1,65 @@
+;; -*- mode: scheme -*-
+
+(define (newline)
+  (%%write 1 (data #"\n") 1))
+
+(define (strlen p)
+  (let ((mutable p p)
+	(mutable count 0)
+	(mutable ch (?byte p)))
+    (while (<> ch 0)
+      (set! count (+ count 1))
+      (set! p (+ p 1))
+      (set! ch (?byte p)))
+    count))
+
+(define (puts s)
+  (%%write 1 s (strlen s)))
+
+(define (putc c)
+  (let ((buf (data #" ")))
+    (!byte buf c)
+    (%%write 1 buf 1)))
+
+(define (putn n)
+  (cond
+   [(= n 0) (putc #x30)]
+   [(<s n 0)
+    (putc #x2d)
+    (putn1 (- 0 n))]
+   [else
+    (putn1 n)]))
+
+(define (putn1 n)
+  (if (= n 0)
+      0
+      (begin (putn1 (/ n 10))
+	     (putc (+ (% n 10) #x30)))))
+
+(define (summarize n other)
+  (puts (data #"Summary: n=\0"))
+  (putn n)
+  (puts (data #" and other=\0"))
+  (putn other)
+  (newline))
+
+(define (fn0 x y z w) (summarize 1 x))
+(define (fn1) (summarize 2 0))
+(define (fn2 x) (summarize 3 x))
+
+(define (dispatch-normally) (summarize -1 0))
+
+(define (foo x)
+  (cond
+   [(= x #x10001000) (fn0 9 8 7 6)]
+   [(= x #x20002000) (fn1)]
+   [(= x #x40004000) (fn2 99)]
+   [else (dispatch-normally)]))
+
+(define (main)
+  (foo 0)
+  (foo #x10001000)
+  (foo #x20002000)
+  (foo #x40004000)
+  (foo 0)
+  )
