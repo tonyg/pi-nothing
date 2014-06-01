@@ -206,8 +206,8 @@
       [(cons form rest)
        (define-values (code data) (compile-toplevel form global-env))
        (loop rest
-	     (list* (pad-to data 4)
-		    (pad-to code 4)
+	     (list* (pad-to data 16)
+		    (pad-to code 16)
 		    blobs-rev))])))
 
 (define (compile-and-link filename-base)
