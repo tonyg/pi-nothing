@@ -38,13 +38,14 @@
 ;; r15 - pc
 
 (define cc (calling-convention '(r0 r1 r2 r3)
-			       #t
+			       4
 			       (lambda (delta)
 				 (@reg 'sp
 				       (if (negative? delta) '- '+)
 				       (if (negative? delta) (- delta) delta)))
 			       4
 			       8
+			       0
 			       0))
 
 (define available-regs (map preg (list 'lr

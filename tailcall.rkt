@@ -105,46 +105,50 @@
 	 make-location-resolver)
 
 (struct calling-convention (argument-regs ;; (Listof Register)
-			    stack-slots-for-argument-regs? ;; Boolean
+			    stack-slots-for-argument-regs ;; Natural, count of words
 			    sp-relative-location ;; (Integer -> Location)
 			    word-size ;; Natural, count of bytes
 			    frame-alignment ;; Natural, count of bytes
 			    linkage-size ;; Natural, count of bytes
+			    entry-linkage-padding ;; Natural, count of bytes
 			    ) #:prefab)
 
+(define (reg-arg-count cc)
+  (length (calling-convention-argument-regs cc)))
+
+(define (arg-stack-index-offset cc)
+  (- (reg-arg-count cc)
+     (calling-convention-stack-slots-for-argument-regs cc)))
+
 (define (argument-passed-in-register? cc i)
-  (< i (length (calling-convention-argument-regs cc))))
+  (< i (reg-arg-count cc)))
 
 (define ((inward-argument-location cc) i)
-  (cond
-   [(argument-passed-in-register? cc i)
-    (preg (list-ref (calling-convention-argument-regs cc) i))]
-   [(calling-convention-stack-slots-for-argument-regs? cc)
-    (inward-arg i)]
-   [else
-    (inward-arg (- i (length (calling-convention-argument-regs cc))))]))
+  (if (argument-passed-in-register? cc i)
+      (preg (list-ref (calling-convention-argument-regs cc) i))
+      (inward-arg (- i (arg-stack-index-offset cc)))))
 
 (define ((outward-argument-location cc) calltype count i)
-  (cond
-   [(argument-passed-in-register? cc i)
-    (preg (list-ref (calling-convention-argument-regs cc) i))]
-   [(calling-convention-stack-slots-for-argument-regs? cc)
-    (outward-arg calltype count i)]
-   [else
-    (outward-arg calltype count (- i (length (calling-convention-argument-regs cc))))]))
+  (if (argument-passed-in-register? cc i)
+      (preg (list-ref (calling-convention-argument-regs cc) i))
+      (outward-arg calltype count (- i (arg-stack-index-offset cc)))))
 
 (define (frame-pad-words cc n)
   (round-up-to-nearest (calling-convention-frame-alignment cc)
 		       (* n (calling-convention-word-size cc))))
 
+(define (frame-pad-argc cc n)
+  (define o (arg-stack-index-offset cc))
+  (if (< n o) 0 (frame-pad-words cc (- n o))))
+
 (define (compute-sp-delta cc most-tail-args temp-count)
-  (+ (frame-pad-words cc most-tail-args)
+  (+ (frame-pad-argc cc most-tail-args)
      (frame-pad-words cc temp-count)))
 
 (define (make-location-resolver cc inward-arg-count most-tail-args temp-count leaf?)
-  (define sp-delta (+ (frame-pad-words cc most-tail-args)
-		      (frame-pad-words cc temp-count)))
+  (define sp-delta (compute-sp-delta cc most-tail-args temp-count))
   (define word-size (calling-convention-word-size cc))
+  (define leaf-pad (calling-convention-entry-linkage-padding cc))
   (define sprel (calling-convention-sp-relative-location cc))
   (lambda (v)
     (match v
@@ -153,40 +157,44 @@
       [(preg r) r]
       [(temporary n)
        (if leaf?
-	   (sprel (- (* n word-size) sp-delta))
+	   (sprel (- (* n word-size) sp-delta leaf-pad))
 	   (sprel (* n word-size)))]
       [(inward-arg n)
        (if leaf?
-	   (sprel    (- (* n word-size) (frame-pad-words cc inward-arg-count)))
-	   (sprel (+ (- (* n word-size) (frame-pad-words cc inward-arg-count)) sp-delta)))]
+	   (sprel (- (- (* n word-size) (frame-pad-argc cc inward-arg-count)) leaf-pad))
+	   (sprel (+ (- (* n word-size) (frame-pad-argc cc inward-arg-count)) sp-delta)))]
       [(outward-arg 'nontail outward-arg-count n)
        (if leaf?
 	   (error 'make-location-resolver "Nontail call in leaf procedure")
-	   (sprel (- (* n word-size) (frame-pad-words cc outward-arg-count))))]
+	   (sprel (- (- (* n word-size) (frame-pad-argc cc outward-arg-count))
+		     (calling-convention-linkage-size cc))))]
       [(outward-arg 'tail outward-arg-count n)
        (if leaf?
-	   (sprel    (- (* n word-size) (frame-pad-words cc outward-arg-count)))
-	   (sprel (+ (- (* n word-size) (frame-pad-words cc outward-arg-count)) sp-delta)))]
+	   (sprel (- (- (* n word-size) (frame-pad-argc cc outward-arg-count)) leaf-pad))
+	   (sprel (+ (- (* n word-size) (frame-pad-argc cc outward-arg-count)) sp-delta)))]
       )))
 
 (module+ test
   (require rackunit)
 
+  (define ((make-expect-loc cc) inward-arg-count most-tail-args temp-count leaf? v expected)
+    (check-equal? ((make-location-resolver cc inward-arg-count most-tail-args temp-count leaf?) v)
+		  expected
+		  (list 'expect-loc inward-arg-count most-tail-args temp-count leaf? v)))
+
   (let () ;; ARM calling conventions
     (local-require "asm-arm7.rkt")
     (define cc (calling-convention '(r0 r1 r2 r3)
-				   #t
+				   4
 				   (lambda (delta)
 				     (@reg 'sp
 					   (if (negative? delta) '- '+)
 					   (if (negative? delta) (- delta) delta)))
 				   4
 				   8
+				   0
 				   0))
-    (define (expect-loc inward-arg-count most-tail-args temp-count leaf? v expected)
-      (check-equal? ((make-location-resolver cc inward-arg-count most-tail-args temp-count leaf?) v)
-		    expected
-		    (list 'expect-loc inward-arg-count most-tail-args temp-count leaf? v)))
+    (define expect-loc (make-expect-loc cc))
 
     ;; Non-leaf procedures
 
