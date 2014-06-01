@@ -26,6 +26,7 @@
 (require "lir.rkt")
 (require "linker.rkt")
 (require "asm-arm7.rkt")
+(require "tailcall.rkt")
 (require (only-in "machine.rkt" machine-description))
 
 (provide machine-arm7)
@@ -36,116 +37,23 @@
 ;; r14 - lr
 ;; r15 - pc
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Calling conventions
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-;; The ARM procedure call standard (AAPCS) specifies a convention for
-;; using the stack pointer suitable for C-like linkage. Because our
-;; setup includes tail calls, we can't quite use it unmodified. So
-;; here's what we do instead.
-;;
-;;  - We keep our stack Full Descending, just like AAPCS.
-;;  - We ensure it is 8-byte aligned at all times, just like (a slight
-;;    restriction of) AAPCS.
-;;  - We make outbound arguments leftmost-low, that is, "pushed from
-;;    right to left". This makes us compatible with naive C struct
-;;    overlaying of memory.
-;;  - Furthermore, we ensure argument 0 in memory is also 8-byte
-;;    aligned.
-;;
-;;  - We do NOT move the stack pointer down over outbound arguments.
-;;    Instead, the callee moves the stack pointer as they see fit.
-;;    This is totally different to AAPCS. The reason for this is so
-;;    that the callee can tail-call someone else without having to do
-;;    any hairy adjusting of the frame, and so that the original
-;;    caller doesn't have to know anything about what's left to clean
-;;    up when they receive control: all the clean-up has already been
-;;    completed.
-;;
-;;  - This bears stating again: just after return from a subroutine,
-;;    all clean-up has already been completed.
-;;
-;; So, with that all out of the way, stack frames need to account for
-;;  - inward args (numbered 4 and above; 0-3 are transmitted in
-;;    registers)
-;;  - space for extra args supplied to tail calls
-;;  - saved temporaries
-;;  - being aligned to the nearest frame-alignment byte boundary
-;;
-;; Stacks are full descending.
-;;  - Ni = inward-arg-count, the number of arguments we expect
-;;  - No = most-tail-args, the largest number of outbound tail args we produce
-;;  - Nt = inward-temp-count, the number of temps we require
-;;  - Na = outward-arg-count, the current number of arguments we are producing
-;;
-;; Upon entry to a subroutine, Ni=5, No=7, Nt=3, Na=3:
-;;
-;;   (low)                                                               (high)
-;;       | outbound  |   |   temps   |   |shuffle|      inbound      |
-;;       | 0 | 1 | 2 |---| 0 | 1 | 2 |---| - | - | 0 | 1 | 2 | 3 | 4 |---|
-;;                       ^                                               ^
-;;                     sp for non-leaf                                sp for leaf
-;;
-;; Note that the first four arguments are transferred in registers,
-;; but that stack slots still need to be reserved. Note also the
-;; padding after the outbound regs, the temps, and the
-;; inbound/shuffle-space.
-;;
-;; The extra shuffle slots are only required if there's no room in the
-;; inbound slots plus padding. For example, if Ni=5 and No=6, then
-;; since we expect the inbound arguments to have one slot of padding,
-;; that slot can be used as shuffle space.
-;;
-;; Leaf procedures do NOT move the stack pointer on entry. Nonleaf
-;; procedures DO move the stack pointer on entry. This means we have
-;; different addressing calculations depending on whether we're a leaf
-;; or nonleaf procedure.
-;;
-;; Pad8(x) = x rounded up to the nearest multiple of 8
-;; sp_delta = Pad8(No * 4) + Pad8(Nt * 4), distance SP might move on entry and exit
-;;
-;; Leaf procedures:
-;;   SP does not move
-;;   inward(n) = rn, if n < 4
-;;             | sp - Pad8(Ni * 4) + (n * 4)
-;;   temp(n) = sp - sp_delta + (n * 4)
-;;   outward(n) (tail calls only) = rn, if n < 4
-;;                                | sp - Pad8(Na * 4) + (n * 4)
-;;
-;; Nonleaf procedures:
-;;   SP moves by sp_delta
-;;   inward(n) = rn, if n < 4
-;;             | sp + sp_delta - Pad8(Ni * 4) + (n * 4)
-;;   temp(n) = sp + (n * 4)
-;;   outward(n) (non-tail calls) = rn, if n < 4
-;;                               | sp - Pad8(Na * 4) + (n * 4)
-;;   outward(n) (tail calls) = rn, if n < 4
-;;                           | sp + sp_delta - Pad8(Na * 4) + (n * 4)
-;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(define cc (calling-convention '(r0 r1 r2 r3)
+			       (lambda (delta)
+				 (@reg 'sp
+				       (if (negative? delta) '- '+)
+				       (if (negative? delta) (- delta) delta)))
+			       4
+			       8
+			       0))
 
 (define available-regs (map preg (list 'lr
 				       'r11 'r10 'r9 'r8
 				       'r7 'r6 'r5 'r4
 				       'r3 'r2 'r1 'r0)))
 
-(define word-size-bytes 4)
-(define frame-alignment 8)
-(define linkage-size 0)
 
 (define killed-regs '(r0 r1 r2 r3 lr))
 (define saved-regs '(r4 r5 r6 r7 r8 r9 r10 r11 lr))
-
-(define (inward-argument-location i)
-  (if (< i 4)
-      (preg (list-ref '(r0 r1 r2 r3) i))
-      (inward-arg i)))
-
-(define (outward-argument-location calltype count i)
-  (if (< i 4)
-      (preg (list-ref '(r0 r1 r2 r3) i))
-      (outward-arg calltype count i)))
 
 (define ((expand-instruction saved-locs) instr)
   (match instr
@@ -173,7 +81,7 @@
     [`(,(and op (or 'call 'tailcall)) ,target ,label (,arg ...))
      (define argcount (length arg))
      (define calltype (if (eq? op 'tailcall) 'tail 'nontail))
-     (define (mkarg i) (outward-argument-location calltype argcount i))
+     (define (mkarg i) ((outward-argument-location cc) calltype argcount i))
      (append ;; Note no mention of r12 here, unlike the i386/x86_64 backends.
 	     (do ((i 0 (+ i 1))
 		  (arg arg (cdr arg))
@@ -298,17 +206,6 @@
 			 more-code)
 		   (list (label-anchor (label-tag L)) (imm32* immediate))))))
 
-(define (sprel delta)
-  (@reg 'sp
-	(if (negative? delta) '- '+)
-	(if (negative? delta) (- delta) delta)))
-
-(define (frame-pad-words n)
-  (round-up-to-nearest frame-alignment (* n word-size-bytes)))
-
-(define (compute-sp-delta most-tail-args temp-count)
-  (+ (frame-pad-words most-tail-args) (frame-pad-words temp-count)))
-
 (define (comparison-code cmpop real-s1 real-s2 k)
   (define cc (case cmpop
 	       ((<=s) 'le) ((<s) 'lt)
@@ -321,36 +218,7 @@
 		    (*cmp 'al real-s1 real-s2))
 		(k cc))))
 
-(define ((assemble-instr inward-arg-count most-tail-args temp-count leaf?) i)
-  (define sp-delta (compute-sp-delta most-tail-args temp-count))
-  (define (xs v)
-    (match v
-      [(lit n) n]
-      [(label tag) (label-reference tag)]
-      [(preg r) r]
-      [(temporary n)
-       (if leaf?
-	   (sprel (- (* n word-size-bytes) sp-delta))
-	   (sprel (* n word-size-bytes)))]
-      [(inward-arg n)
-       (if (< n 4)
-	   (list-ref '(r0 r1 r2 r3) n)
-	   (if leaf?
-	       (sprel    (- (* n word-size-bytes) (frame-pad-words inward-arg-count)))
-	       (sprel (+ (- (* n word-size-bytes) (frame-pad-words inward-arg-count)) sp-delta))))]
-      [(outward-arg 'nontail outward-arg-count n)
-       (if (< n 4)
-	   (list-ref '(r0 r1 r2 r3) n)
-	   (if leaf?
-	       (error 'xs-arm "Nontail call in leaf procedure")
-	       (sprel (- (* n word-size-bytes) (frame-pad-words outward-arg-count)))))]
-      [(outward-arg 'tail outward-arg-count n)
-       (if (< n 4)
-	   (list-ref '(r0 r1 r2 r3) n)
-	   (if leaf?
-	       (sprel    (- (* n word-size-bytes) (frame-pad-words outward-arg-count)))
-	       (sprel (+ (- (* n word-size-bytes) (frame-pad-words outward-arg-count)) sp-delta))))]
-      ))
+(define ((assemble-instr xs sp-delta) i)
   (match i
     [`(move-word ,target ,source)
      (define real-target (xs target))
@@ -429,7 +297,7 @@
      (nodata (label-anchor tag))]
     [`(jmp ,(label tag))			(nodata (*b 'al (label-reference tag)))]
     [`(ret ,(preg 'r0))
-     (nodata (list (if (or leaf? (zero? sp-delta)) '() (*add 'al 0 'sp 'sp sp-delta))
+     (nodata (list (if (zero? sp-delta) '() (*add 'al 0 'sp 'sp sp-delta))
 		   (*mov 'al 0 'pc 'lr)))]
     [`(call ,(preg 'r0) ,target ,args)
      (define outward-arg-count (length args))
@@ -437,43 +305,43 @@
 	       [(preg r) (*blx 'al r)]
 	       [(label tag) (*bl 'al (label-reference tag))]))]
     [`(tailcall ,(preg 'r0) ,target ,args)
-     (nodata (list (if (or leaf? (zero? sp-delta)) '() (*add 'al 0 'sp 'sp sp-delta))
+     (nodata (list (if (zero? sp-delta) '() (*add 'al 0 'sp 'sp sp-delta))
 		   (match target
 		     [(preg r) (*mov 'al 0 'pc r)]
 		     [(label tag) (*b 'al (label-reference tag))])))]
     [_ (error 'assemble-instr "Cannot assemble ~v" i)]))
 
-(define ((assemble-instr* inward-arg-count most-tail-args temp-count leaf?) i)
-  (define-values (icode idata)
-    ((assemble-instr inward-arg-count most-tail-args temp-count leaf?) i))
+(define ((assemble-instr* xs sp-delta) i)
+  (define-values (icode idata) ((assemble-instr xs sp-delta) i))
   (write `(,i -> ,icode ,idata))
   (newline)
   (flush-output)
   (values icode idata))
 
 (define (assemble inward-arg-count most-tail-args temp-count leaf? instrs)
-  (define sp-delta (compute-sp-delta most-tail-args temp-count))
+  (define xs (make-location-resolver cc inward-arg-count most-tail-args temp-count leaf?))
+  (define sp-delta (if leaf? 0 (compute-sp-delta cc most-tail-args temp-count)))
   (let loop ((instrs instrs)
 	     (code-rev '())
 	     (data-rev '()))
     (match instrs
-      ['() (values (list (if (or leaf? (zero? sp-delta)) '() (*sub 'al 0 'sp 'sp sp-delta))
+      ['() (values (list (if (zero? sp-delta) '() (*sub 'al 0 'sp 'sp sp-delta))
 			 (reverse code-rev))
 		   (reverse data-rev))]
       [(cons instr rest)
        (define-values (icode idata)
-	 ((assemble-instr* inward-arg-count most-tail-args temp-count leaf?) instr))
+	 ((assemble-instr* xs sp-delta) instr))
        (loop rest
 	     (cons icode code-rev)
 	     (cons idata data-rev))])))
 
 (define machine-arm7
   (machine-description 'arm7
-		       word-size-bytes
+		       (calling-convention-word-size cc)
 		       _int32
 		       available-regs
-		       inward-argument-location
-		       outward-argument-location
+		       (inward-argument-location cc)
+		       (outward-argument-location cc)
 		       expand-instructions
 		       expand-temporary-loads-and-stores
 		       assemble))
