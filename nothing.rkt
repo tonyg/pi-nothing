@@ -254,6 +254,9 @@
     [`(cond)
      (store-result dest (lit 0))]
 
+    [`(cond [else ,e ...])
+     (translate-exp tail? dest `(begin ,@e) env)]
+
     [`(cond [,t ,e ...] ,rest ...)
      (translate-exp tail? dest `(if ,t (begin ,@e) (cond ,@rest)) env)]
 
