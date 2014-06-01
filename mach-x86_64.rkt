@@ -44,13 +44,13 @@
 ;; makes it tried first. See the details of how the recursion in
 ;; find-available-register works.
 (define available-regs (map preg (list
+				  'rbp
 				  'r8 'r9 'r10 'r11 'r12 'r13 'r14 'r15
 				  'rbx 'rcx 'rdx 'rsi 'rdi 'rax
-				  ;; 'rbp ;; TODO: add RBP (in more sensible location)
 				  )))
 
 (define killed-regs '(rcx rdx rsi rdi rax r8 r9 r10 r11))
-(define saved-regs '(rbx r12 r13 r14 r15))
+(define saved-regs '(rbp rbx r12 r13 r14 r15))
 
 (define ((expand-instruction saved-locs) instr)
   (match instr
