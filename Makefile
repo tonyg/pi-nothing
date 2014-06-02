@@ -39,15 +39,15 @@ clean-kernel:
 compiled: *.rkt
 	raco make main-arm.rkt exec-macho.rkt
 
-examples: hello-x86_64.macho hello-x86_64.elf
+examples: hello-x86_64.macho hello-x86_64.elf mandelbrot.macho mandelbrot.elf
 
 clean-examples:
 	rm -f hello-x86_64.macho hello-x86_64.elf
 
-hello-x86_64.macho: hello-x86_64.nothing
-	racket exec-macho.rkt hello-x86_64
-	mv hello-x86_64 $@
+%.macho: %.nothing
+	racket exec-macho.rkt $*
+	mv $* $@
 
-hello-x86_64.elf: hello-x86_64.nothing
-	racket exec-elf.rkt hello-x86_64
-	mv hello-x86_64 $@
+%.elf: %.nothing
+	racket exec-elf.rkt $*
+	mv $* $@
