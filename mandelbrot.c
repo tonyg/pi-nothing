@@ -3,9 +3,9 @@
 #include <string.h>
 #include <unistd.h>
 
-static long int_to_fix(long i) { return i << 16; }
+long int_to_fix(long i) { return i << 16; }
 
-static void putrgb(long r, long g, long b) {
+void putrgb(long r, long g, long b) {
   unsigned char buf[3];
   buf[0] = r;
   buf[1] = g;
@@ -13,7 +13,7 @@ static void putrgb(long r, long g, long b) {
   write(1, buf, 3);
 }
 
-static long escape_iteration_count(long cx, long cy) {
+long escape_iteration_count(long cx, long cy) {
   long zx = 0, zy = 0, zx2 = 0, zy2 = 0;
   unsigned long i = 0;
   unsigned long const iteration_limit = 256;
