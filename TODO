@@ -60,3 +60,11 @@ Dybvig, Robert Hieb and Tom Butler (IUCS TR 302, Feb 1990). In
 particular, unkink the existing "dest" argument and augment it with
 corresponding control arguments. Generalize the while loop to repeat
 plus break, as shown in the paper.
+
+-=-=-=-
+
+I already have call and tailcall; would adding syscall make sense?
+It'd allow for abstraction over the various syscall mechanisms without
+having to hardcode arch-specific assembly for each syscall, and would
+also avoid procedure-call overhead. For x86_64, (syscall 1 a b c)
+would place a, b, c in rdi, rsi, rdx, then place 1 in rax and SYSCALL.
