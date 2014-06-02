@@ -38,6 +38,11 @@
 	 *push
 	 *pop
 	 *lea
+	 *rol
+	 *ror
+	 *shl
+	 *shr
+	 *sar
 
 	 *leave
 	 *ret
@@ -123,6 +128,21 @@
 
 (define (*inc target)
   (mod-r-m-64 #xFF 0 target))
+
+(define (*shift-ish name subop amount target)
+  (cond
+   ((immediate? amount)
+    (list (mod-r-m-64 #xC1 subop target) amount))
+   ((eq? amount 'rcx)
+    (mod-r-m-64 #xD3 subop target))
+   (else
+    (error '*shl "~a: Can only assemble immediate or CL shift; got ~v" name amount))))
+
+(define (*rol amount target) (*shift-ish '*rol 0 amount target))
+(define (*ror amount target) (*shift-ish '*ror 1 amount target))
+(define (*shl amount target) (*shift-ish '*shl 4 amount target))
+(define (*shr amount target) (*shift-ish '*shr 5 amount target))
+(define (*sar amount target) (*shift-ish '*sar 7 amount target))
 
 (define (*mov source target . maybe-8bit)
   (let ((w-bit (if (null? maybe-8bit) 1 (if (car maybe-8bit) 0 1))))
@@ -329,3 +349,29 @@
 (check-equal? (flatten (*lea (@reg 'rip 16) 'r13)) (unhex-string "4c 8d 2d 10 00 00 00"))
 (check-equal? (flatten (*lea (@reg 'rip 0) 'r13)) (unhex-string "4c 8d 2d 00 00 00 00"))
 (check-equal? (flatten (*lea (@reg 'rip -16) 'r13)) (unhex-string "4c 8d 2d f0 ff ff ff"))
+
+(check-equal? (flatten (*rol 3 'rax)) (unhex-string "48 c1 c0 03"))
+(check-equal? (flatten (*rol 'rcx 'rax)) (unhex-string "48 d3 c0"))
+(check-equal? (flatten (*rol 3 (@reg 'rax 16))) (unhex-string "48 c1 40 10 03"))
+(check-equal? (flatten (*rol 'rcx (@reg 'rax 16))) (unhex-string "48 d3 40 10"))
+
+(check-equal? (flatten (*ror 3 'rax)) (unhex-string "48 c1 c8 03"))
+(check-equal? (flatten (*ror 'rcx 'rax)) (unhex-string "48 d3 c8"))
+(check-equal? (flatten (*ror 3 (@reg 'rax 16))) (unhex-string "48 c1 48 10 03"))
+(check-equal? (flatten (*ror 'rcx (@reg 'rax 16))) (unhex-string "48 d3 48 10"))
+
+(check-equal? (flatten (*shl 3 'rax)) (unhex-string "48 c1 e0 03"))
+(check-equal? (flatten (*shl 'rcx 'rax)) (unhex-string "48 d3 e0"))
+(check-equal? (flatten (*shl 3 (@reg 'rax 16))) (unhex-string "48 c1 60 10 03"))
+(check-equal? (flatten (*shl 'rcx (@reg 'rax 16))) (unhex-string "48 d3 60 10"))
+
+(check-equal? (flatten (*shr 3 'rax)) (unhex-string "48 c1 e8 03"))
+(check-equal? (flatten (*shr 'rcx 'rax)) (unhex-string "48 d3 e8"))
+(check-equal? (flatten (*shr 3 (@reg 'rax 16))) (unhex-string "48 c1 68 10 03"))
+(check-equal? (flatten (*shr 'rcx (@reg 'rax 16))) (unhex-string "48 d3 68 10"))
+
+(check-equal? (flatten (*sar 3 'rax)) (unhex-string "48 c1 f8 03"))
+(check-equal? (flatten (*sar 'rcx 'rax)) (unhex-string "48 d3 f8"))
+(check-equal? (flatten (*sar 3 (@reg 'rax 16))) (unhex-string "48 c1 78 10 03"))
+(check-equal? (flatten (*sar 'rcx (@reg 'rax 16))) (unhex-string "48 d3 78 10"))
+

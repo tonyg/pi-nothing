@@ -102,6 +102,15 @@
      (list `(move-word ,rt ,target)
 	   `(move-word ,rs ,source)
 	   `(,op ,rt ,rs))]
+    [`(wshift ,op ,(? reg-or-preg? target) ,(lit n) ,(lit m))
+     (list `(move-word ,target ,(lit (arithmetic-shift n m))))]
+    [`(wshift ,op ,(? reg-or-preg? target) ,n ,(lit m))
+     (list `(move-word ,target ,n)
+	   `(wshift ,op ,target ,target ,(lit m)))]
+    [`(wshift ,op ,(? reg-or-preg? target) ,n ,shift-amount)
+     (list `(move-word ,target ,n)
+	   `(move-word ,(preg 'rcx) ,shift-amount)
+	   `(wshift ,op ,target ,target ,(preg 'rcx)))]
     [i
      (list i)]))
 
@@ -200,6 +209,10 @@
     [`(w* ,target ,target ,source)			(*imul (xs source) (xs target))]
     [`(wdiv ,(preg 'rax) ,(preg 'rax) ,(preg r))	(*div r)]
     [`(wmod ,(preg 'rax) ,(preg 'rax) ,(preg r))	(*div r)]
+    [`(wshift ,op ,target ,target ,amount)		(case op
+							  [(<<) (*shl (xs amount) (xs target))]
+							  [(>>u) (*shr (xs amount) (xs target))]
+							  [(>>s) (*sar (xs amount) (xs target))])]
     [`(compare/set ,cmpop ,(preg 'rax) ,s1 ,s2)
      (comparison-code cmpop (xs s1) (xs s2)
 		      (lambda (cc)
