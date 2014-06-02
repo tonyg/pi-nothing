@@ -37,7 +37,7 @@ clean-kernel:
 	racket main-arm.rkt --start $$(cat $*.startaddr) $* 2>&1 | tee $*.log
 
 compiled: *.rkt
-	raco make main-arm.rkt exec-macho.rkt
+	raco make main-arm.rkt exec-macho.rkt exec-elf.rkt
 
 examples: hello-x86_64.macho hello-x86_64.elf mandelbrot.macho mandelbrot.elf
 
