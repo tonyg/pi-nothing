@@ -166,6 +166,9 @@
 	(*call (label-reference 'main))
 	(*mov 'rax 'rdi)
 	(*call (label-reference '%%exit))
+	(label-anchor '%%ostype)
+	(*mov 1 'rax)
+	(*ret)
 ))
 
 (define (make-syscall name body)
