@@ -172,8 +172,11 @@
   (list (label-anchor name)
 	(*push 'rbp)
 	(*mov 'rsp 'rbp)
+	(*push 'r10)
+	(*mov 'rcx 'r10)
 	(*op 'and #xfffffffffffffff0 'rsp)
 	body
+	(*pop 'r10)
 	(*leave)
 	(*ret)))
 
