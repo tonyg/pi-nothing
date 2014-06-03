@@ -53,8 +53,8 @@
 (const OSX_MAP_ANON #x1000)
 
 (define (init-heap)
-  (let ((base (%%mmap 0
-		      1048576
+  (let ((base (%%mmap 1048576 ;; arbitrary suggested addr
+		      1048576 ;; map one megabyte
 		      (+ (+ PROT_READ PROT_WRITE) PROT_EXEC) 
 		      (+ MAP_PRIVATE
 			 (let ((ostype (%%ostype)))
@@ -65,9 +65,36 @@
 		      0)))
     (puts (data #"Base: \0"))
     (putn base)
-    (newline)))
+    (newline)
+    (set-heap-base! base)))
+
+(define (alloc count)
+  (let ((base (heap-base)))
+    (set-heap-base! (+ base count))
+    base))
+
+(define (cons a d)
+  (let ((cell (alloc 16)))
+    (! cell a)
+    (! (+ cell 8) d)
+    cell))
+
+(define (map f xs)
+  (if (= xs 0)
+      0
+      (cons (f (? xs)) (map f (? (+ xs 8))))))
+
+(define (add1 x) (+ x 1))
+
+(define (putlist xs)
+  (if (= xs 0)
+      0
+      (begin (putn (? xs))
+	     (putc 32)
+	     (putlist (? (+ xs 8))))))
 
 (define (main)
   (init-heap)
-  ;;(map add1 (cons 1 (cons 2 (cons 3 (cons 4 0)))))
+  (putlist (map add1 (cons 1 (cons 2 (cons 3 (cons 4 0))))))
+  (newline)
   )
