@@ -45,13 +45,22 @@
 (const PROT_WRITE 2)
 (const PROT_EXEC 4)
 
-(const MAP_ANON #x1000)
+(const OS_LINUX 0)
+(const OS_OSX 1)
+
+(const MAP_PRIVATE 2)
+(const LINUX_MAP_ANON #x20)
+(const OSX_MAP_ANON #x1000)
 
 (define (init-heap)
   (let ((base (%%mmap 0
 		      1048576
 		      (+ (+ PROT_READ PROT_WRITE) PROT_EXEC) 
-		      MAP_ANON
+		      (+ MAP_PRIVATE
+			 (let ((ostype (%%ostype)))
+			   (cond [(= ostype OS_LINUX) LINUX_MAP_ANON]
+				 [(= ostype OS_OSX) OSX_MAP_ANON]
+				 [else (%%exit 1)])))
 		      -1
 		      0)))
     (puts (data #"Base: \0"))
