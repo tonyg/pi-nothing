@@ -8,6 +8,10 @@ KERNEL=kernel
 
 UDIS=udis86-1.7.2
 
+EXAMPLES=\
+	hello-x86_64.macho hello-x86_64.elf \
+	mandelbrot.macho mandelbrot.elf
+
 all: disassemblers compiled $(KERNEL).img
 
 disassemblers: udcli disarm/disarm-0.11
@@ -39,10 +43,10 @@ clean-kernel:
 compiled: *.rkt
 	raco make main-arm.rkt exec-macho.rkt exec-elf.rkt
 
-examples: hello-x86_64.macho hello-x86_64.elf mandelbrot.macho mandelbrot.elf
+examples: $(EXAMPLES)
 
 clean-examples:
-	rm -f hello-x86_64.macho hello-x86_64.elf
+	rm -f $(EXAMPLES)
 
 %.macho: %.nothing
 	racket exec-macho.rkt $*
