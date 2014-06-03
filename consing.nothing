@@ -1,0 +1,64 @@
+;; -*- mode: scheme -*-
+
+(define (newline)
+  (%%write 1 (data #"\n") 1))
+
+(define (strlen p)
+  (let ((mutable p p)
+	(mutable count 0)
+	(mutable ch (?byte p)))
+    (while (<> ch 0)
+      (set! count (+ count 1))
+      (set! p (+ p 1))
+      (set! ch (?byte p)))
+    count))
+
+(define (puts s)
+  (%%write 1 s (strlen s)))
+
+(define (putc c)
+  (let ((buf (data #" ")))
+    (!byte buf c)
+    (%%write 1 buf 1)))
+
+(define (putn n)
+  (cond
+   [(= n 0) (putc #x30)]
+   [(<s n 0)
+    (putc #x2d)
+    (putn1 (- 0 n))]
+   [else
+    (putn1 n)]))
+
+(define (putn1 n)
+  (if (= n 0)
+      0
+      (begin (putn1 (/ n 10))
+	     (putc (+ (% n 10) #x30)))))
+
+(define (heap-base-ptr) (data #"        ")) ;; ugh
+(define (heap-base) (? (heap-base-ptr)))
+(define (set-heap-base! v) (! (heap-base-ptr) v))
+
+(const PROT_NONE 0)
+(const PROT_READ 1)
+(const PROT_WRITE 2)
+(const PROT_EXEC 4)
+
+(const MAP_ANON #x1000)
+
+(define (init-heap)
+  (let ((base (%%mmap 0
+		      1048576
+		      (+ (+ PROT_READ PROT_WRITE) PROT_EXEC) 
+		      MAP_ANON
+		      -1
+		      0)))
+    (puts (data #"Base: \0"))
+    (putn base)
+    (newline)))
+
+(define (main)
+  (init-heap)
+  ;;(map add1 (cons 1 (cons 2 (cons 3 (cons 4 0)))))
+  )
