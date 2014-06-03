@@ -10,7 +10,8 @@ UDIS=udis86-1.7.2
 
 EXAMPLES=\
 	hello-x86_64.macho hello-x86_64.elf \
-	mandelbrot.macho mandelbrot.elf
+	mandelbrot.macho mandelbrot.elf \
+	consing.macho consing.elf
 
 all: disassemblers compiled $(KERNEL).img
 
