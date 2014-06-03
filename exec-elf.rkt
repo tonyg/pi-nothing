@@ -126,6 +126,10 @@
 	(make-syscall '%%exit ;; RDI=exit_status
 		      (list (*mov 60 'rax) ;; __NR_exit <asm/unistd_64.h>
 			    (*syscall)))
+	(make-syscall '%%mmap ;; RDI=addr, RSI=len, RDX=prot
+		              ;; RCX=flags, R8=fd, R9=offset
+		      (list (*mov 9 'rax) ;; __NR_mmap <asm/unistd_64.h>
+			    (*syscall)))
 	))
 
 (define (compile-toplevel form global-env)

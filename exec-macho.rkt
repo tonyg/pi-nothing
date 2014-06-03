@@ -184,6 +184,10 @@
 	(make-syscall '%%exit ;; RDI=exit_status
 		      (list (*mov #x2000001 'rax) ;; SYS_exit
 			    (*syscall)))
+	(make-syscall '%%mmap ;; RDI=addr, RSI=len, RDX=prot
+		              ;; RCX=flags, R8=fd, R9=offset
+		      (list (*mov #x20000c5 'rax) ;; SYS_mmap
+			    (*syscall)))
 	))
 
 (define (compile-toplevel form global-env)
