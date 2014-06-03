@@ -191,10 +191,15 @@
     [`(ret ,(preg 'eax))
      (list (if (zero? sp-delta) '() (*op 'add sp-delta 'esp))
 	   (*ret))]
-    [`(call ,(preg 'eax) ,(label tag) ,_)		(*call (label-reference tag))]
-    [`(tailcall ,(preg 'eax) ,(label tag) ,args)
+    [`(call ,(preg 'eax) ,target ,_)
+     (*call (match target
+	      [(label tag) (label-reference tag)]
+	      [(preg r) r]))]
+    [`(tailcall ,(preg 'eax) ,target ,args)
      (list (if (zero? sp-delta) '() (*op 'add sp-delta 'esp))
-	   (*jmp (label-reference tag)))]
+	   (*jmp (match target
+		   [(label tag) (label-reference tag)]
+		   [(preg r) r])))]
     [_ (error 'assemble-instr "Cannot assemble ~v" i)]))
 
 (define ((assemble-instr* xs sp-delta) i)
