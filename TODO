@@ -68,17 +68,3 @@ It'd allow for abstraction over the various syscall mechanisms without
 having to hardcode arch-specific assembly for each syscall, and would
 also avoid procedure-call overhead. For x86_64, (syscall 1 a b c)
 would place a, b, c in rdi, rsi, rdx, then place 1 in rax and SYSCALL.
-
--=-=-=-
-
-Why does the register allocator (I presume) generate poor code like
-the following, when rax isn't live, and rdi is dead after the store?
-
-00000001000013af 4889c7           mov rdi, rax
-00000001000013b2 4883c708         add rdi, 0x8
-00000001000013b6 4c8937           mov [rdi], r14
-
-(Example taken from the end of (cons) in consing.nothing's code.)
-
-Duh. rax is in fact live: it's the result of cons! This is quite
-reasonable code.
