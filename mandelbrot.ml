@@ -4,12 +4,12 @@ open Int64
 
 let int_to_fix i = shift_left (of_int i) 16
 
-let buf = String.create 3
-let putrgb r g b =
-  String.set buf 0 r;
-  String.set buf 1 g;
-  String.set buf 2 b;
-  let _ = Unix.write Unix.stdout buf 0 3 in ()
+let putrgb buf stride x y r g b =
+  let i = 3 * (x + (y * stride)) in
+  String.set buf i r;
+  String.set buf (i+1) g;
+  String.set buf (i+2) b;
+  ()
 
 let escape_iteration_count cx cy =
   let iteration_limit = 256 in
@@ -29,6 +29,7 @@ let main () =
   let width = 1024 in
   let height = 1024 in
   Printf.printf "P6 %d %d 255\n%!" width height;
+  let buf = String.create (width * height * 3) in
   let rec yloop y =
     if y >= height
     then ()
@@ -41,9 +42,12 @@ let main () =
 		    (add (int_to_fix (-2)) (mul (of_int y) (div (int_to_fix 4) (of_int height))))
 		in
 		let b = char_of_int (if i == -1 then 0 else i) in
-		putrgb b b b;
+		putrgb buf width x y b b b;
 		xloop (x + 1)
 	 in xloop 0
-  in yloop 0
+  in
+  yloop 0;
+  let _ = Unix.write Unix.stdout buf 0 (String.length buf) in
+  ()
 
 let _ = main ()
