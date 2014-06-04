@@ -79,3 +79,6 @@ the following, when rax isn't live, and rdi is dead after the store?
 00000001000013b6 4c8937           mov [rdi], r14
 
 (Example taken from the end of (cons) in consing.nothing's code.)
+
+Duh. rax is in fact live: it's the result of cons! This is quite
+reasonable code.
