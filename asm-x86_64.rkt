@@ -16,8 +16,6 @@
 ;; You should have received a copy of the GNU General Public License
 ;; along with pi-nothing. If not, see <http://www.gnu.org/licenses/>.
 
-(require rackunit)
-
 (require "asm-x86-common.rkt")
 
 (provide (all-from-out "asm-x86-common.rkt")
@@ -49,6 +47,20 @@
 
 	 *syscall
 	 *sysret
+
+	 *sqrtsd
+	 *addsd
+	 *mulsd
+	 *subsd
+	 *minsd
+	 *divsd
+	 *maxsd
+
+	 *movsd
+	 *comisd
+	 *ucomisd
+	 *cvtsd2si
+	 *cvtsi2sd
 	 )
 
 (define regs '((rax 0)
@@ -67,7 +79,23 @@
 	       (r13 13)
 	       (r14 14)
 	       (r15 15)
-	       (rip rip-relative)))
+	       (rip rip-relative)
+	       (xmm0 0)
+	       (xmm1 1)
+	       (xmm2 2)
+	       (xmm3 3)
+	       (xmm4 4)
+	       (xmm5 5)
+	       (xmm6 6)
+	       (xmm7 7)
+	       (xmm8 8)
+	       (xmm9 9)
+	       (xmm10 10)
+	       (xmm11 11)
+	       (xmm12 12)
+	       (xmm13 13)
+	       (xmm14 14)
+	       (xmm15 15)))
 
 (define (reg-num reg)
   (cond
@@ -75,7 +103,7 @@
    (else (error 'reg-num "Invalid register ~v" reg))))
 
 (define (mod-r-m-64 opcodes reg modrm)
-  (mod-r-m #t reg-num opcodes reg modrm))
+  (mod-r-m #t 1 reg-num opcodes reg modrm))
 
 (define (*op opcode source target)
   (let ((opcode (arithmetic-opcode opcode)))
@@ -241,6 +269,50 @@
 ;; The non-REX variant it calls "sysretl".
 (define (*sysret) (list (rex reg-num 1 0 0 0) #x0F #x07))
 
+;;---------------------------------------------------------------------------
+;; SSE2 floating point
+
+(define (mod-r-m-sse opcodes reg modrm)
+  (mod-r-m #t 0 reg-num opcodes reg modrm))
+
+(define (sse-sd-op prefix op reg modrm)
+  (list prefix (mod-r-m-sse (list #x0F op) reg modrm)))
+
+;;        movmskpd??                            #x50
+(define (*sqrtsd source target) (sse-sd-op #xF2 #x51 target source))
+;;        rsqrtsd absent (rsqrtss only)         #x52
+;;        rcpsd absent (rcpss only)             #x53
+;;        andsd??                               #x54
+;;        andnsd??                              #x55
+;;        orsd??                                #x56
+;;        xorsd??                               #x57
+(define (*addsd source target)  (sse-sd-op #xF2 #x58 target source))
+(define (*mulsd source target)  (sse-sd-op #xF2 #x59 target source))
+;;        cvtsd2ss                              #x5A
+;;        cvtdq2sd??                            #x5B
+(define (*subsd source target)  (sse-sd-op #xF2 #X5C target source))
+(define (*minsd source target)  (sse-sd-op #xF2 #x5D target source))
+(define (*divsd source target)  (sse-sd-op #xF2 #x5E target source))
+(define (*maxsd source target)  (sse-sd-op #xF2 #x5F target source))
+
+(define (*movsd source target)
+  (if (memory? target)
+      (if (memory? source)
+	  (error '*movsd "Cannot move double from memory to memory")
+	  (sse-sd-op #xF2 #x11 source target))
+      (sse-sd-op #xF2 #x10 target source)))
+
+;; As always, comparison is based on the sign of (target - source).
+;; If target - source is positive, the "greater-than" bits will be set.
+;; For *comisd and *ucomisd, source may refer to memory.
+(define (*ucomisd source target) (sse-sd-op #x66 #x2E target source))
+(define (*comisd source target) (sse-sd-op #x66 #x2F target source))
+
+;; N.B.: these always load/store 64 bits worth of integer.
+;; Variations exist that load/store 32 bits worth, but they are not implemented here.
+(define (*cvtsd2si source target) (list #xF2 (mod-r-m-64 (list #x0F #x2D) target source)))
+(define (*cvtsi2sd source target) (list #xF2 (mod-r-m-64 (list #x0F #x2A) target source)))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (module+ test
@@ -370,4 +442,59 @@
   (check-encoding-equal? (*sar 'rcx 'rax) "48 d3 f8")
   (check-encoding-equal? (*sar 3 (@reg 'rax 16)) "48 c1 78 10 03")
   (check-encoding-equal? (*sar 'rcx (@reg 'rax 16)) "48 d3 78 10")
+
+  (check-encoding-equal? (*addsd 'xmm1 'xmm0) "f2 0f 58 c1")
+  (check-encoding-equal? (*addsd 'xmm0 'xmm1) "f2 0f 58 c8")
+  (check-encoding-equal? (*addsd 'xmm11 'xmm0) "f2 41 0f 58 c3")
+  (check-encoding-equal? (*addsd 'xmm0 'xmm11) "f2 44 0f 58 d8")
+  (check-encoding-equal? (*addsd 'xmm11 'xmm10) "f2 45 0f 58 d3")
+  (check-encoding-equal? (*addsd 'xmm10 'xmm11) "f2 45 0f 58 da")
+
+  (check-encoding-equal? (*addsd (@reg 'rax 0) 'xmm0) "f2 0f 58 00")
+  (check-encoding-equal? (*addsd (@reg 'rax 1000) 'xmm0) "f2 0f 58 80 e8 03 00 00")
+  (check-encoding-equal? (*addsd (@imm #x11223344) 'xmm0) "f2 0f 58 04 25 44 33 22 11")
+  (check-encoding-equal? (*addsd (@imm #x11223344) 'xmm11) "f2 44 0f 58 1c 25 44 33 22 11")
+  (check-encoding-equal? (*addsd (@reg 'r15 1000) 'xmm0) "f2 41 0f 58 87 e8 03 00 00")
+  (check-encoding-equal? (*addsd (@reg 'r15 1000) 'xmm11) "f2 45 0f 58 9f e8 03 00 00")
+
+  (check-encoding-equal? (*sqrtsd 'xmm12 'xmm11) "f2 45 0f 51 dc")
+  (check-encoding-equal? (*addsd  'xmm12 'xmm11) "f2 45 0f 58 dc")
+  (check-encoding-equal? (*mulsd  'xmm12 'xmm11) "f2 45 0f 59 dc")
+  (check-encoding-equal? (*subsd  'xmm12 'xmm11) "f2 45 0f 5c dc")
+  (check-encoding-equal? (*minsd  'xmm12 'xmm11) "f2 45 0f 5d dc")
+  (check-encoding-equal? (*divsd  'xmm12 'xmm11) "f2 45 0f 5e dc")
+  (check-encoding-equal? (*maxsd  'xmm12 'xmm11) "f2 45 0f 5f dc")
+
+  (check-encoding-equal? (*movsd 'xmm0 'xmm1) "f2 0f 10 c8")
+  (check-encoding-equal? (*movsd (@reg 'rax 1000) 'xmm1) "f2 0f 10 88 e8 03 00 00")
+  (check-encoding-equal? (*movsd 'xmm1 (@reg 'rax 1000)) "f2 0f 11 88 e8 03 00 00")
+
+  (check-encoding-equal? (*ucomisd 'xmm0 'xmm1) "66 0f 2e c8")
+  (check-encoding-equal? (*ucomisd (@reg 'rax 0) 'xmm0) "66 0f 2e 00")
+  (check-encoding-equal? (*ucomisd (@reg 'rax 1000) 'xmm11) "66 44 0f 2e 98 e8 03 00 00")
+
+  (check-encoding-equal? (*comisd 'xmm0 'xmm1) "66 0f 2f c8")
+  (check-encoding-equal? (*comisd (@reg 'rax 0) 'xmm0) "66 0f 2f 00")
+  (check-encoding-equal? (*comisd (@reg 'rax 1000) 'xmm11) "66 44 0f 2f 98 e8 03 00 00")
+
+  (check-encoding-equal? (*cvtsd2si (@reg 'rax 0) 'rax) "f2 48 0f 2d 00")
+  (check-encoding-equal? (*cvtsd2si 'xmm0 'rax) "f2 48 0f 2d c0")
+  (check-encoding-equal? (*cvtsd2si 'xmm11 'rax) "f2 49 0f 2d c3")
+
+  (check-encoding-equal? (*cvtsd2si (@reg 'rax 0) 'rbp) "f2 48 0f 2d 28")
+  (check-encoding-equal? (*cvtsd2si (@reg 'rbp 0) 'rbp) "f2 48 0f 2d 6d 00")
+  (check-encoding-equal? (*cvtsd2si 'xmm11 'rbp) "f2 49 0f 2d eb")
+  (check-encoding-equal? (*cvtsd2si 'xmm11 'r14) "f2 4d 0f 2d f3")
+
+  (check-encoding-equal? (*cvtsd2si (@reg 'rax 0) 'r14) "f2 4c 0f 2d 30")
+  (check-encoding-equal? (*cvtsd2si (@reg 'rbp 0) 'r14) "f2 4c 0f 2d 75 00")
+
+  (check-encoding-equal? (*cvtsi2sd (@reg 'rax 0) 'xmm3) "f2 48 0f 2a 18")
+  (check-encoding-equal? (*cvtsi2sd (@reg 'rax 1000) 'xmm3) "f2 48 0f 2a 98 e8 03 00 00")
+  (check-encoding-equal? (*cvtsi2sd 'rax 'xmm3) "f2 48 0f 2a d8")
+  (check-encoding-equal? (*cvtsi2sd 'rbp 'xmm11) "f2 4c 0f 2a dd")
+  (check-encoding-equal? (*cvtsi2sd 'r14 'xmm11) "f2 4d 0f 2a de")
+
+  (check-encoding-equal? (*cvtsi2sd (@reg 'rax 0) 'xmm11) "f2 4c 0f 2a 18")
+  (check-encoding-equal? (*cvtsi2sd (@reg 'rbp 0) 'xmm11) "f2 4c 0f 2a 5d 00")
   )

@@ -100,27 +100,25 @@
      ((@reg? r) (shr (reg-num (@reg-register r)) 3))
      ((number? r) (bitwise-and 1 (shr r 3)))
      (else (error 'rex-bit "Unsupported argument ~v" r))))
-  (bitfield 4 4
-	    1 w
-	    1 (rex-bit rreg)
-	    1 (rex-bit xreg)
-	    1 (rex-bit breg)))
+  (define rbit (rex-bit rreg))
+  (define xbit (rex-bit xreg))
+  (define bbit (rex-bit breg))
+  (if (and (zero? w) (zero? rbit) (zero? xbit) (zero? bbit))
+      '()
+      (bitfield 4 4 1 w 1 rbit 1 xbit 1 bbit)))
 
 (define (mod-r-m* mod reg rm)
   (bitfield 2 mod 3 (bitwise-and 7 reg) 3 (bitwise-and 7 rm)))
-
-(define (hi? v)
-  (>= v 8))
 
 ;; Mod values:
 ;;  00 - no displacement, [reg]
 ;;  01 - 8bit displacement, [reg + n]
 ;;  10 - 32bit displacement, [reg + n]
 ;;  11 - direct, reg
-(define (mod-r-m is-64bit? reg-num opcodes reg modrm)
+(define (mod-r-m use-rex? force-64bit-address reg-num opcodes reg modrm)
   (define (rex-wrap r x b tail)
-    (if is-64bit?
-	(list (rex reg-num 1 r x b) opcodes tail)
+    (if use-rex?
+	(list (rex reg-num force-64bit-address r x b) opcodes tail)
 	(list opcodes tail)))
   (let ((reg (cond
 	      ((number? reg) reg)
@@ -133,7 +131,7 @@
      ((@imm? modrm)
       ;; raw absolute address, always 32 bits
       ;; see also caveat wrt (@reg 'ebp 0) below
-      (if is-64bit?
+      (if use-rex?
 	  (rex-wrap reg 0 0 (list (mod-r-m* 0 reg 4) #x25 (imm32* (@imm-address modrm))))
 	  (list opcodes (mod-r-m* 0 reg 5) (imm32* (@imm-address modrm)))))
      ((@reg? modrm)
@@ -147,7 +145,7 @@
 				  (else (imm32* offset))))
 	      (base-reg-num (reg-num base-reg)))
 	  (cond
-	   ((and is-64bit? (eq? base-reg-num 'rip-relative))
+	   ((and use-rex? (eq? base-reg-num 'rip-relative))
 	    ;; special RIP-relative ModR/M construction. p49 (p2-15), vol. 2A, Intel 253666
 	    (rex-wrap reg 0 5 (list (mod-r-m* 0 reg 5) (imm32* offset))))
 	   ((= base-reg-num 4) ;; esp, rsp
