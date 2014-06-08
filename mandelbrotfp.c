@@ -10,7 +10,7 @@ void putrgb(char *buf, long stride, long x, long y, long r, long g, long b) {
   buf[i+2] = b;
 }
 
-double escape_iteration_count(double cx, double cy) {
+long escape_iteration_count(double cx, double cy) {
   double zx = 0, zy = 0, zx2 = 0, zy2 = 0;
   unsigned long i = 0;
   unsigned long const iteration_limit = 256;
