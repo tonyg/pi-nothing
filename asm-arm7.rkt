@@ -486,6 +486,19 @@
 ;;---------------------------------------------------------------------------
 ;; VFP coprocessor: coprocessors 10 and 11 (single- and double-precision).
 
+(define (fpreg-num reg)
+  (define n (and (symbol? reg)
+		 (let ((s (symbol->string reg)))
+		   (case (string-ref s 0)
+		     [(#\s #\S #\d #\D)
+		      (let ((ns (substring s 1 (string-length s))))
+			(and (andmap char-numeric? (string->list ns))
+			     (string->number ns)))]
+		     [else #f]))))
+  (if (and n (>= n 0) (< n 32))
+      n
+      (error 'fpreg-num "Invalid register ~v" reg)))
+
 (define (double? precision)
   (case precision
     [(single) #f]
@@ -497,14 +510,14 @@
 ;; single-precision registers use the bit as the LOW bit of the
 ;; register number!
 (define (vfp-split-reg-num precision cr)
+  (define num (fpreg-num cr))
   (if (double? precision)
-      (values (arithmetic-shift cr -4) (bitwise-and cr 15))
-      (values (bitwise-and cr 1) (arithmetic-shift cr -1))))
+      (values (arithmetic-shift num -4) (bitwise-and num 15))
+      (values (bitwise-and num 1) (arithmetic-shift num -1))))
 
 ;; Generic VFP operation
-(define (*vfp-op cc precision op1 op2 op3 vd vm)
+(define (*vfp-op cc precision op1 op2 op3 vd m MMMM)
   (define-values (d DDDD) (vfp-split-reg-num precision vd))
-  (define-values (m MMMM) (vfp-split-reg-num precision vm))
   (*cdp cc
 	(if (double? precision) 11 10)
 	(bitwise-ior op1 (arithmetic-shift d 2))
@@ -515,13 +528,15 @@
 
 ;; Miscellaneous (unary) operations
 (define (*vfp-misc-op cc precision op2 op3 vd vm)
-  (*vfp-op cc precision #b1011 op2 op3 vd vm))
+  (define-values (m MMMM) (vfp-split-reg-num precision vm))
+  (*vfp-op cc precision #b1011 op2 op3 vd m MMMM))
 
 ;; Binary operations
 (define (*vfp-binary-op cc precision op1 op3 vd vn vm)
+  (define-values (m MMMM) (vfp-split-reg-num precision vm))
   (define-values (n NNNN) (vfp-split-reg-num precision vn))
   (define op3/n (bitwise-ior op3 (arithmetic-shift n 1)))
-  (*vfp-op cc precision op1 NNNN op3/n vd vm))
+  (*vfp-op cc precision op1 NNNN op3/n vd m MMMM))
 
 (define (vfp-encode-immediate precision imm)
   (if (double? precision)
@@ -562,15 +577,14 @@
     (error '*vmov-imm "Cannot encode immediate float ~a" imm))
   (define high-bits (arithmetic-shift encoded-imm -4))
   (define low-bits (bitwise-and encoded-imm 15))
-  (*vfp-misc-op cc
-		precision
-		high-bits
-		#b00
-		vd
-		(if (double? precision)
-		    low-bits ;; high bit clear
-		    (arithmetic-shift low-bits 1) ;; low bit clear
-		    )))
+  (*vfp-op cc
+	   precision
+	   #b1011
+	   high-bits
+	   #b00
+	   vd
+	   0
+	   low-bits))
 
 (define (*vmov-reg cc precision vd vm) (*vfp-misc-op cc precision #b0000 #b01 vd vm))
 (define (*vabs cc precision vd vm)     (*vfp-misc-op cc precision #b0000 #b11 vd vm))
@@ -583,7 +597,7 @@
 (define (*vcmp-reg cc precision always-trap-nan? vd vm)
   (*vfp-misc-op cc precision #b0100 (if always-trap-nan? #b11 #b01) vd vm))
 (define (*vcmp-zero cc precision always-trap-nan? vd)
-  (*vfp-misc-op cc precision #b0101 (if always-trap-nan? #b11 #b01) vd 0))
+  (*vfp-op cc precision #b1011 #b0101 (if always-trap-nan? #b11 #b01) vd 0 0))
 
 (define (*vcvt-integer->float cc precision signed? vd vm)
   (*vfp-misc-op cc
@@ -614,108 +628,108 @@
 (module+ test
   (require "test-utils.rkt")
 
-  (check-encoding-equal? (*vmul 'al 'double 16 17 18) "A2 0B 61 EE")
-  (check-encoding-equal? (*vmul 'al 'double 0 1 2) "02 0B 21 EE")
+  (check-encoding-equal? (*vmul 'al 'double 'd16 'd17 'd18) "A2 0B 61 EE")
+  (check-encoding-equal? (*vmul 'al 'double 'd0 'd1 'd2) "02 0B 21 EE")
 
-  (check-encoding-equal? (*vadd 'al 'double 16 17 18) "A2 0B 71 EE")
-  (check-encoding-equal? (*vadd 'al 'double 0 1 2) "02 0B 31 EE")
+  (check-encoding-equal? (*vadd 'al 'double 'd16 'd17 'd18) "A2 0B 71 EE")
+  (check-encoding-equal? (*vadd 'al 'double 'd0 'd1 'd2) "02 0B 31 EE")
 
-  (check-encoding-equal? (*vsub 'al 'double 16 17 18) "E2 0B 71 EE")
-  (check-encoding-equal? (*vsub 'al 'double 0 1 2) "42 0B 31 EE")
+  (check-encoding-equal? (*vsub 'al 'double 'd16 'd17 'd18) "E2 0B 71 EE")
+  (check-encoding-equal? (*vsub 'al 'double 'd0 'd1 'd2) "42 0B 31 EE")
 
-  (check-encoding-equal? (*vsqrt 'al 'double 0 1) "C1 0B B1 EE")
-  (check-encoding-equal? (*vsqrt 'al 'double 16 17) "E1 0B F1 EE")
+  (check-encoding-equal? (*vsqrt 'al 'double 'd0 'd1) "C1 0B B1 EE")
+  (check-encoding-equal? (*vsqrt 'al 'double 'd16 'd17) "E1 0B F1 EE")
 
-  (check-encoding-equal? (*vabs 'al 'double 0 1) "C1 0B B0 EE")
-  (check-encoding-equal? (*vabs 'al 'double 16 17) "E1 0B F0 EE")
+  (check-encoding-equal? (*vabs 'al 'double 'd0 'd1) "C1 0B B0 EE")
+  (check-encoding-equal? (*vabs 'al 'double 'd16 'd17) "E1 0B F0 EE")
 
-  (check-encoding-equal? (*vmov-imm 'al 'double 0  1.0)    "00 0B B7 EE")
-  (check-encoding-equal? (*vmov-imm 'al 'double 0  2.0)    "00 0B B0 EE")
-  (check-encoding-equal? (*vmov-imm 'al 'double 0 10.0)    "04 0B B2 EE")
-  (check-encoding-equal? (*vmov-imm 'al 'double 0  0.1875) "08 0B B4 EE")
-  (check-encoding-equal? (*vmov-imm 'al 'double 0  0.375)  "08 0B B5 EE")
-  (check-encoding-equal? (*vmov-imm 'al 'double 0  0.75)   "08 0B B6 EE")
-  (check-encoding-equal? (*vmov-imm 'al 'double 0  1.5)    "08 0B B7 EE")
-  (check-encoding-equal? (*vmov-imm 'al 'double 0  3.0)    "08 0B B0 EE")
-  (check-encoding-equal? (*vmov-imm 'al 'double 0  6.0)    "08 0B B1 EE")
-  (check-encoding-equal? (*vmov-imm 'al 'double 0 12.0)    "08 0B B2 EE")
-  (check-encoding-equal? (*vmov-imm 'al 'double 0 24.0)    "08 0B B3 EE")
+  (check-encoding-equal? (*vmov-imm 'al 'double 'd0  1.0)    "00 0B B7 EE")
+  (check-encoding-equal? (*vmov-imm 'al 'double 'd0  2.0)    "00 0B B0 EE")
+  (check-encoding-equal? (*vmov-imm 'al 'double 'd0 10.0)    "04 0B B2 EE")
+  (check-encoding-equal? (*vmov-imm 'al 'double 'd0  0.1875) "08 0B B4 EE")
+  (check-encoding-equal? (*vmov-imm 'al 'double 'd0  0.375)  "08 0B B5 EE")
+  (check-encoding-equal? (*vmov-imm 'al 'double 'd0  0.75)   "08 0B B6 EE")
+  (check-encoding-equal? (*vmov-imm 'al 'double 'd0  1.5)    "08 0B B7 EE")
+  (check-encoding-equal? (*vmov-imm 'al 'double 'd0  3.0)    "08 0B B0 EE")
+  (check-encoding-equal? (*vmov-imm 'al 'double 'd0  6.0)    "08 0B B1 EE")
+  (check-encoding-equal? (*vmov-imm 'al 'double 'd0 12.0)    "08 0B B2 EE")
+  (check-encoding-equal? (*vmov-imm 'al 'double 'd0 24.0)    "08 0B B3 EE")
 
-  (check-encoding-equal? (*vmov-imm 'al 'double 0  -1.0)    "00 0B BF EE")
-  (check-encoding-equal? (*vmov-imm 'al 'double 0  -2.0)    "00 0B B8 EE")
-  (check-encoding-equal? (*vmov-imm 'al 'double 0 -10.0)    "04 0B BA EE")
-  (check-encoding-equal? (*vmov-imm 'al 'double 0  -0.1875) "08 0B BC EE")
-  (check-encoding-equal? (*vmov-imm 'al 'double 0  -0.375)  "08 0B BD EE")
-  (check-encoding-equal? (*vmov-imm 'al 'double 0  -0.75)   "08 0B BE EE")
-  (check-encoding-equal? (*vmov-imm 'al 'double 0  -1.5)    "08 0B BF EE")
-  (check-encoding-equal? (*vmov-imm 'al 'double 0  -3.0)    "08 0B B8 EE")
-  (check-encoding-equal? (*vmov-imm 'al 'double 0  -6.0)    "08 0B B9 EE")
-  (check-encoding-equal? (*vmov-imm 'al 'double 0 -12.0)    "08 0B BA EE")
-  (check-encoding-equal? (*vmov-imm 'al 'double 0 -24.0)    "08 0B BB EE")
+  (check-encoding-equal? (*vmov-imm 'al 'double 'd0  -1.0)    "00 0B BF EE")
+  (check-encoding-equal? (*vmov-imm 'al 'double 'd0  -2.0)    "00 0B B8 EE")
+  (check-encoding-equal? (*vmov-imm 'al 'double 'd0 -10.0)    "04 0B BA EE")
+  (check-encoding-equal? (*vmov-imm 'al 'double 'd0  -0.1875) "08 0B BC EE")
+  (check-encoding-equal? (*vmov-imm 'al 'double 'd0  -0.375)  "08 0B BD EE")
+  (check-encoding-equal? (*vmov-imm 'al 'double 'd0  -0.75)   "08 0B BE EE")
+  (check-encoding-equal? (*vmov-imm 'al 'double 'd0  -1.5)    "08 0B BF EE")
+  (check-encoding-equal? (*vmov-imm 'al 'double 'd0  -3.0)    "08 0B B8 EE")
+  (check-encoding-equal? (*vmov-imm 'al 'double 'd0  -6.0)    "08 0B B9 EE")
+  (check-encoding-equal? (*vmov-imm 'al 'double 'd0 -12.0)    "08 0B BA EE")
+  (check-encoding-equal? (*vmov-imm 'al 'double 'd0 -24.0)    "08 0B BB EE")
 
-  (check-encoding-equal? (*vmov-imm 'al 'single 0  1.0)    "00 0A B7 EE")
-  (check-encoding-equal? (*vmov-imm 'al 'single 0  2.0)    "00 0A B0 EE")
+  (check-encoding-equal? (*vmov-imm 'al 'single 's0  1.0)    "00 0A B7 EE")
+  (check-encoding-equal? (*vmov-imm 'al 'single 's0  2.0)    "00 0A B0 EE")
 
   ;; 10.0 = 01000001 00100000 00000000 00000000
   ;;        aBbbbbbc defgh--- -------- --------
   ;; --> abcdefgh = 00100100
   (check-equal? (vfp-encode-immediate 'single 10.0) #b00100100)
 
-  (check-encoding-equal? (*vmov-imm 'al 'single 0 10.0)    "04 0A B2 EE")
-  (check-encoding-equal? (*vmov-imm 'al 'single 0  0.1875) "08 0A B4 EE")
-  (check-encoding-equal? (*vmov-imm 'al 'single 0  0.375)  "08 0A B5 EE")
-  (check-encoding-equal? (*vmov-imm 'al 'single 0  0.75)   "08 0A B6 EE")
-  (check-encoding-equal? (*vmov-imm 'al 'single 0  1.5)    "08 0A B7 EE")
-  (check-encoding-equal? (*vmov-imm 'al 'single 0  3.0)    "08 0A B0 EE")
-  (check-encoding-equal? (*vmov-imm 'al 'single 0  6.0)    "08 0A B1 EE")
-  (check-encoding-equal? (*vmov-imm 'al 'single 0 12.0)    "08 0A B2 EE")
-  (check-encoding-equal? (*vmov-imm 'al 'single 0 24.0)    "08 0A B3 EE")
+  (check-encoding-equal? (*vmov-imm 'al 'single 's0 10.0)    "04 0A B2 EE")
+  (check-encoding-equal? (*vmov-imm 'al 'single 's0  0.1875) "08 0A B4 EE")
+  (check-encoding-equal? (*vmov-imm 'al 'single 's0  0.375)  "08 0A B5 EE")
+  (check-encoding-equal? (*vmov-imm 'al 'single 's0  0.75)   "08 0A B6 EE")
+  (check-encoding-equal? (*vmov-imm 'al 'single 's0  1.5)    "08 0A B7 EE")
+  (check-encoding-equal? (*vmov-imm 'al 'single 's0  3.0)    "08 0A B0 EE")
+  (check-encoding-equal? (*vmov-imm 'al 'single 's0  6.0)    "08 0A B1 EE")
+  (check-encoding-equal? (*vmov-imm 'al 'single 's0 12.0)    "08 0A B2 EE")
+  (check-encoding-equal? (*vmov-imm 'al 'single 's0 24.0)    "08 0A B3 EE")
 
-  (check-encoding-equal? (*vmov-imm 'al 'single 0  -1.0)    "00 0A BF EE")
-  (check-encoding-equal? (*vmov-imm 'al 'single 0  -2.0)    "00 0A B8 EE")
-  (check-encoding-equal? (*vmov-imm 'al 'single 0 -10.0)    "04 0A BA EE")
-  (check-encoding-equal? (*vmov-imm 'al 'single 0  -0.1875) "08 0A BC EE")
-  (check-encoding-equal? (*vmov-imm 'al 'single 0  -0.375)  "08 0A BD EE")
-  (check-encoding-equal? (*vmov-imm 'al 'single 0  -0.75)   "08 0A BE EE")
-  (check-encoding-equal? (*vmov-imm 'al 'single 0  -1.5)    "08 0A BF EE")
-  (check-encoding-equal? (*vmov-imm 'al 'single 0  -3.0)    "08 0A B8 EE")
-  (check-encoding-equal? (*vmov-imm 'al 'single 0  -6.0)    "08 0A B9 EE")
-  (check-encoding-equal? (*vmov-imm 'al 'single 0 -12.0)    "08 0A BA EE")
-  (check-encoding-equal? (*vmov-imm 'al 'single 0 -24.0)    "08 0A BB EE")
+  (check-encoding-equal? (*vmov-imm 'al 'single 's0  -1.0)    "00 0A BF EE")
+  (check-encoding-equal? (*vmov-imm 'al 'single 's0  -2.0)    "00 0A B8 EE")
+  (check-encoding-equal? (*vmov-imm 'al 'single 's0 -10.0)    "04 0A BA EE")
+  (check-encoding-equal? (*vmov-imm 'al 'single 's0  -0.1875) "08 0A BC EE")
+  (check-encoding-equal? (*vmov-imm 'al 'single 's0  -0.375)  "08 0A BD EE")
+  (check-encoding-equal? (*vmov-imm 'al 'single 's0  -0.75)   "08 0A BE EE")
+  (check-encoding-equal? (*vmov-imm 'al 'single 's0  -1.5)    "08 0A BF EE")
+  (check-encoding-equal? (*vmov-imm 'al 'single 's0  -3.0)    "08 0A B8 EE")
+  (check-encoding-equal? (*vmov-imm 'al 'single 's0  -6.0)    "08 0A B9 EE")
+  (check-encoding-equal? (*vmov-imm 'al 'single 's0 -12.0)    "08 0A BA EE")
+  (check-encoding-equal? (*vmov-imm 'al 'single 's0 -24.0)    "08 0A BB EE")
 
-  (check-encoding-equal? (*vmov-reg 'al 'double 0 1) "41 0B B0 EE")
-  (check-encoding-equal? (*vmov-reg 'al 'double 16 17) "61 0B F0 EE")
+  (check-encoding-equal? (*vmov-reg 'al 'double 'd0 'd1) "41 0B B0 EE")
+  (check-encoding-equal? (*vmov-reg 'al 'double 'd16 'd17) "61 0B F0 EE")
 
-  (check-encoding-equal? (*vmov-reg 'al 'single 0 1) "60 0A B0 EE")
-  (check-encoding-equal? (*vmov-reg 'al 'single 16 17) "68 8A B0 EE")
+  (check-encoding-equal? (*vmov-reg 'al 'single 's0 's1) "60 0A B0 EE")
+  (check-encoding-equal? (*vmov-reg 'al 'single 's16 's17) "68 8A B0 EE")
 
-  (check-encoding-equal? (*vcmp-reg 'al 'double #f 0 1) "41 0B B4 EE")
-  (check-encoding-equal? (*vcmp-reg 'al 'double #f 16 17) "61 0B F4 EE")
-  (check-encoding-equal? (*vcmp-reg 'al 'double #t 0 1) "C1 0B B4 EE")
-  (check-encoding-equal? (*vcmp-reg 'al 'double #t 16 17) "E1 0B F4 EE")
+  (check-encoding-equal? (*vcmp-reg 'al 'double #f 'd0 'd1) "41 0B B4 EE")
+  (check-encoding-equal? (*vcmp-reg 'al 'double #f 'd16 'd17) "61 0B F4 EE")
+  (check-encoding-equal? (*vcmp-reg 'al 'double #t 'd0 'd1) "C1 0B B4 EE")
+  (check-encoding-equal? (*vcmp-reg 'al 'double #t 'd16 'd17) "E1 0B F4 EE")
 
-  (check-encoding-equal? (*vcmp-reg 'al 'single #f 0 1) "60 0A B4 EE")
-  (check-encoding-equal? (*vcmp-reg 'al 'single #f 16 17) "68 8A B4 EE")
-  (check-encoding-equal? (*vcmp-reg 'al 'single #t 0 1) "E0 0A B4 EE")
-  (check-encoding-equal? (*vcmp-reg 'al 'single #t 16 17) "E8 8A B4 EE")
+  (check-encoding-equal? (*vcmp-reg 'al 'single #f 's0 's1) "60 0A B4 EE")
+  (check-encoding-equal? (*vcmp-reg 'al 'single #f 's16 's17) "68 8A B4 EE")
+  (check-encoding-equal? (*vcmp-reg 'al 'single #t 's0 's1) "E0 0A B4 EE")
+  (check-encoding-equal? (*vcmp-reg 'al 'single #t 's16 's17) "E8 8A B4 EE")
 
-  (check-encoding-equal? (*vcmp-zero 'al 'double #f 0) "40 0B B5 EE")
-  (check-encoding-equal? (*vcmp-zero 'al 'double #f 16) "40 0B F5 EE")
-  (check-encoding-equal? (*vcmp-zero 'al 'double #t 0) "C0 0B B5 EE")
-  (check-encoding-equal? (*vcmp-zero 'al 'double #t 16) "C0 0B F5 EE")
+  (check-encoding-equal? (*vcmp-zero 'al 'double #f 'd0) "40 0B B5 EE")
+  (check-encoding-equal? (*vcmp-zero 'al 'double #f 'd16) "40 0B F5 EE")
+  (check-encoding-equal? (*vcmp-zero 'al 'double #t 'd0) "C0 0B B5 EE")
+  (check-encoding-equal? (*vcmp-zero 'al 'double #t 'd16) "C0 0B F5 EE")
 
-  (check-encoding-equal? (*vcmp-zero 'al 'single #f 0) "40 0A B5 EE")
-  (check-encoding-equal? (*vcmp-zero 'al 'single #f 16) "40 8A B5 EE")
-  (check-encoding-equal? (*vcmp-zero 'al 'single #t 0) "C0 0A B5 EE")
-  (check-encoding-equal? (*vcmp-zero 'al 'single #t 16) "C0 8A B5 EE")
+  (check-encoding-equal? (*vcmp-zero 'al 'single #f 's0) "40 0A B5 EE")
+  (check-encoding-equal? (*vcmp-zero 'al 'single #f 's16) "40 8A B5 EE")
+  (check-encoding-equal? (*vcmp-zero 'al 'single #t 's0) "C0 0A B5 EE")
+  (check-encoding-equal? (*vcmp-zero 'al 'single #t 's16) "C0 8A B5 EE")
 
-  (check-encoding-equal? (*vmla 'al 'double 0 1 2) "02 0B 01 EE")
-  (check-encoding-equal? (*vmla 'al 'double 16 17 18) "A2 0B 41 EE")
-  (check-encoding-equal? (*vmls 'al 'double 0 1 2) "42 0B 01 EE")
-  (check-encoding-equal? (*vmls 'al 'double 16 17 18) "E2 0B 41 EE")
+  (check-encoding-equal? (*vmla 'al 'double 'd0 'd1 'd2) "02 0B 01 EE")
+  (check-encoding-equal? (*vmla 'al 'double 'd16 'd17 'd18) "A2 0B 41 EE")
+  (check-encoding-equal? (*vmls 'al 'double 'd0 'd1 'd2) "42 0B 01 EE")
+  (check-encoding-equal? (*vmls 'al 'double 'd16 'd17 'd18) "E2 0B 41 EE")
 
-  (check-encoding-equal? (*vmla 'al 'single 0 1 2) "81 0A 00 EE")
-  (check-encoding-equal? (*vmla 'al 'single 16 17 18) "89 8A 08 EE")
-  (check-encoding-equal? (*vmls 'al 'single 0 1 2) "C1 0A 00 EE")
-  (check-encoding-equal? (*vmls 'al 'single 16 17 18) "C9 8A 08 EE")
+  (check-encoding-equal? (*vmla 'al 'single 's0 's1 's2) "81 0A 00 EE")
+  (check-encoding-equal? (*vmla 'al 'single 's16 's17 's18) "89 8A 08 EE")
+  (check-encoding-equal? (*vmls 'al 'single 's0 's1 's2) "C1 0A 00 EE")
+  (check-encoding-equal? (*vmls 'al 'single 's16 's17 's18) "C9 8A 08 EE")
   )
