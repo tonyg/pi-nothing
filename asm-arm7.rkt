@@ -17,6 +17,7 @@
 ;; along with pi-nothing. If not, see <http://www.gnu.org/licenses/>.
 
 (require rackunit)
+(require bitsyntax) ;; for manipulating floating-point literals
 
 (require "asm-common.rkt")
 (require "linker.rkt")
@@ -389,3 +390,332 @@
   (imm32* (bitfield 4 (condition-code-num cc)
 		    4 15
 		    24 num)))
+
+;;---------------------------------------------------------------------------
+;; Coprocessor instructions
+
+;; 3-bit op1 and op2.
+(define (*mcr/mrc cc n op1 to-arm? rt crn crm op2)
+  (imm32* (bitfield 4 (condition-code-num cc)
+		    4 14
+		    3 op1
+		    1 (bool->bit to-arm?)
+		    4 crn
+		    4 (reg-num rt)
+		    4 n
+		    3 op2
+		    1 1
+		    4 crm)))
+
+;; Set ARM reg from coprocessor reg.
+;; Note: rt='r15='pc causes the flags to be loaded from the coprocessor.
+(define (*mrc cc n op1 rt crn crm op2)
+  (*mcr/mrc cc n op1 #t rt crn crm op2))
+
+;; Set coprocessor reg from ARM reg.
+(define (*mcr cc n op1 rt crn crm op2)
+  (*mcr/mrc cc n op1 #f rt crn crm op2))
+
+;; 3-bit op1 and op2.
+(define (*mcrr/mrrc cc n op1 to-arm? rt1 rt2 crm)
+  (imm32* (bitfield 4 (condition-code-num cc)
+		    7 #b1100010
+		    1 (bool->bit to-arm?)
+		    4 (reg-num rt2)
+		    4 (reg-num rt1)
+		    4 n
+		    3 op1
+		    1 1
+		    4 crm)))
+
+;; Set two ARM regs from double-width coprocessor reg.
+(define (*mrrc cc n op1 rt1 rt2 crm)
+  (*mcrr/mrrc cc n op1 #t rt1 rt2 crm))
+
+;; Set one double-width coprocessor reg from two ARM regs.
+(define (*mcrr cc n op1 rt1 rt2 crm)
+  (*mcrr/mrrc cc n op1 #f rt1 rt2 crm))
+
+;; "Coprocessor Data Processing" -- generic coprocessor instruction.
+;; 4-bit op1, unlike mcr/mrc and mcrr/mrrc, but *3-bit* op2!
+;;
+;; cccc 1110 pppp NNNN DDDD nnnn qqq0 MMMM
+;;   cc       op1  crn  crd    n op2   crm
+(define (*cdp cc n op1 crd crn crm op2)
+  (imm32* (bitfield 4 (condition-code-num cc)
+		    4 14
+		    4 op1
+		    4 crn
+		    4 crd
+		    4 n
+		    3 op2
+		    1 0
+		    4 crm)))
+
+;; Load from memory to coprocessor reg, or store from reg to memory.
+(define (ldc-or-stc load? cc n d-encoding? crd am option)
+  (define p (address-mode->p-bit am))
+  (define w (address-mode->w-bit am))
+  (define a (address-mode->address am))
+  (define delta (@reg-delta a))
+  (define u (u-bit (reg-u a)))
+  (define d (bool->bit d-encoding?))
+  (when (and (or (= u 0) p w) (not (= option 0)))
+    (error 'ldc-or-stc "Cannot encode nonzero option in non-unindexed case"))
+  (when (not (@delta-imm? delta))
+    (error 'ldc-or-stc "Cannot encode non-immediate delta"))
+  (when (not (= (bitwise-and delta 3) 0))
+    (error 'ldc-or-stc "Cannot encode non-word-aligned delta ~a" delta))
+  (when (negative? delta)
+    (error 'ldc-or-stc "Cannot encode negative delta (use '- in @reg to get subtraction)"))
+  (imm32* (bitfield 4 (condition-code-num cc)
+		    3 #b110
+		    1 (bool->bit p)
+		    1 u
+		    1 d
+		    1 (bool->bit w)
+		    1 (bool->bit load?)
+		    4 (reg-num (@reg-register a))
+		    4 crd
+		    4 n
+		    8 (arithmetic-shift delta -2))))
+
+(define (*ldc cc n d-encoding? crd am option) (ldc-or-stc #t cc n d-encoding? crd am option))
+(define (*stc cc n d-encoding? crd am option) (ldc-or-stc #f cc n d-encoding? crd am option))
+
+;;---------------------------------------------------------------------------
+;; VFP coprocessor: coprocessors 10 and 11 (single- and double-precision).
+
+(define (double? precision)
+  (case precision
+    [(single) #f]
+    [(double) #t]
+    [else (error 'double? "Invalid precision: ~v" precision)]))
+
+;; Double-precision registers use the "extension" bit in the
+;; instruction encoding to select the upper 16 registers;
+;; single-precision registers use the bit as the LOW bit of the
+;; register number!
+(define (vfp-split-reg-num precision cr)
+  (if (double? precision)
+      (values (arithmetic-shift cr -4) (bitwise-and cr 15))
+      (values (bitwise-and cr 1) (arithmetic-shift cr -1))))
+
+;; Generic VFP operation
+(define (*vfp-op cc precision op1 op2 op3 vd vm)
+  (define-values (d DDDD) (vfp-split-reg-num precision vd))
+  (define-values (m MMMM) (vfp-split-reg-num precision vm))
+  (*cdp cc
+	(if (double? precision) 11 10)
+	(bitwise-ior op1 (arithmetic-shift d 2))
+	DDDD
+	op2
+	MMMM
+	(bitwise-ior (arithmetic-shift op3 1) m)))
+
+;; Miscellaneous (unary) operations
+(define (*vfp-misc-op cc precision op2 op3 vd vm)
+  (*vfp-op cc precision #b1011 op2 op3 vd vm))
+
+;; Binary operations
+(define (*vfp-binary-op cc precision op1 op3 vd vn vm)
+  (define-values (n NNNN) (vfp-split-reg-num precision vn))
+  (define op3/n (bitwise-ior op3 (arithmetic-shift n 1)))
+  (*vfp-op cc precision op1 NNNN op3/n vd vm))
+
+(define (vfp-encode-immediate precision imm)
+  (if (double? precision)
+      (bit-string-case (bit-string (imm :: float big-endian bits 64))
+	([ (sign :: integer bits 1)
+	   (exp-upper :: integer bits 9)
+	   (exp-low :: integer bits 2)
+	   (mant :: integer bits 4)
+	   (= 0 :: integer bits 48) ]
+	 (let ((b (cond [(= exp-upper #x100) 0]
+			[(= exp-upper #x0ff) 1]
+			[else #f])))
+	   (and b (bitwise-ior (arithmetic-shift sign 7)
+			       (arithmetic-shift b 6)
+			       (arithmetic-shift exp-low 4)
+			       mant))))
+	([ other ] #f))
+      (bit-string-case (bit-string (imm :: float big-endian bits 32))
+	([ (sign :: integer bits 1)
+	   (exp-upper :: integer bits 6)
+	   (exp-low :: integer bits 2)
+	   (mant :: integer bits 4)
+	   (= 0 :: integer bits 19) ]
+	 (let ((b (cond [(= exp-upper #x20) 0]
+			[(= exp-upper #x1f) 1]
+			[else #f])))
+	   (and b (bitwise-ior (arithmetic-shift sign 7)
+			       (arithmetic-shift b 6)
+			       (arithmetic-shift exp-low 4)
+			       mant)))))))
+
+(define (can-encode-immediate-float? precision imm)
+  (if (vfp-encode-immediate precision imm) #t #f))
+
+(define (*vmov-imm cc precision vd imm)
+  (define encoded-imm (vfp-encode-immediate precision imm))
+  (when (not encoded-imm)
+    (error '*vmov-imm "Cannot encode immediate float ~a" imm))
+  (define high-bits (arithmetic-shift encoded-imm -4))
+  (define low-bits (bitwise-and encoded-imm 15))
+  (*vfp-misc-op cc
+		precision
+		high-bits
+		#b00
+		vd
+		(if (double? precision)
+		    low-bits ;; high bit clear
+		    (arithmetic-shift low-bits 1) ;; low bit clear
+		    )))
+
+(define (*vmov-reg cc precision vd vm) (*vfp-misc-op cc precision #b0000 #b01 vd vm))
+(define (*vabs cc precision vd vm)     (*vfp-misc-op cc precision #b0000 #b11 vd vm))
+(define (*vneg cc precision vd vm)     (*vfp-misc-op cc precision #b0001 #b01 vd vm))
+(define (*vsqrt cc precision vd vm)    (*vfp-misc-op cc precision #b0001 #b11 vd vm))
+
+;; N.B. usually you will want to follow *vcmp-reg and *vcmp-zero with a
+;; VMRS instruction to extract the result of the comparison into the
+;; ARM flags.
+(define (*vcmp-reg cc precision always-trap-nan? vd vm)
+  (*vfp-misc-op cc precision #b0100 (if always-trap-nan? #b11 #b01) vd vm))
+(define (*vcmp-zero cc precision always-trap-nan? vd)
+  (*vfp-misc-op cc precision #b0101 (if always-trap-nan? #b11 #b01) vd 0))
+
+(define (*vcvt-integer->float cc precision signed? vd vm)
+  (*vfp-misc-op cc
+		precision
+		#b1000
+		(bitwise-ior (arithmetic-shift (bool->bit signed?) 1) 1)
+		vd
+		vm))
+
+(define (*vcvt-float->integer cc precision round-mode signed? vd vm)
+  (define r (case round-mode [(round-to-zero) 1] [(round-per-fpscr) 0]))
+  (*vfp-misc-op cc
+		precision
+		(bitwise-ior (bool->bit signed?) #b1100)
+		(bitwise-ior (arithmetic-shift r 1) 1)
+		vd
+		vm))
+
+(define (*vmla cc precision vd vn vm) (*vfp-binary-op cc precision #b0000 #b00 vd vn vm))
+(define (*vmls cc precision vd vn vm) (*vfp-binary-op cc precision #b0000 #b01 vd vn vm))
+(define (*vadd cc precision vd vn vm) (*vfp-binary-op cc precision #b0011 #b00 vd vn vm))
+(define (*vsub cc precision vd vn vm) (*vfp-binary-op cc precision #b0011 #b01 vd vn vm))
+(define (*vmul cc precision vd vn vm) (*vfp-binary-op cc precision #b0010 #b00 vd vn vm))
+(define (*vdiv cc precision vd vn vm) (*vfp-binary-op cc precision #b1000 #b00 vd vn vm))
+
+;;---------------------------------------------------------------------------
+
+(module+ test
+  (require "test-utils.rkt")
+
+  (check-encoding-equal? (*vmul 'al 'double 16 17 18) "A2 0B 61 EE")
+  (check-encoding-equal? (*vmul 'al 'double 0 1 2) "02 0B 21 EE")
+
+  (check-encoding-equal? (*vadd 'al 'double 16 17 18) "A2 0B 71 EE")
+  (check-encoding-equal? (*vadd 'al 'double 0 1 2) "02 0B 31 EE")
+
+  (check-encoding-equal? (*vsub 'al 'double 16 17 18) "E2 0B 71 EE")
+  (check-encoding-equal? (*vsub 'al 'double 0 1 2) "42 0B 31 EE")
+
+  (check-encoding-equal? (*vsqrt 'al 'double 0 1) "C1 0B B1 EE")
+  (check-encoding-equal? (*vsqrt 'al 'double 16 17) "E1 0B F1 EE")
+
+  (check-encoding-equal? (*vabs 'al 'double 0 1) "C1 0B B0 EE")
+  (check-encoding-equal? (*vabs 'al 'double 16 17) "E1 0B F0 EE")
+
+  (check-encoding-equal? (*vmov-imm 'al 'double 0  1.0)    "00 0B B7 EE")
+  (check-encoding-equal? (*vmov-imm 'al 'double 0  2.0)    "00 0B B0 EE")
+  (check-encoding-equal? (*vmov-imm 'al 'double 0 10.0)    "04 0B B2 EE")
+  (check-encoding-equal? (*vmov-imm 'al 'double 0  0.1875) "08 0B B4 EE")
+  (check-encoding-equal? (*vmov-imm 'al 'double 0  0.375)  "08 0B B5 EE")
+  (check-encoding-equal? (*vmov-imm 'al 'double 0  0.75)   "08 0B B6 EE")
+  (check-encoding-equal? (*vmov-imm 'al 'double 0  1.5)    "08 0B B7 EE")
+  (check-encoding-equal? (*vmov-imm 'al 'double 0  3.0)    "08 0B B0 EE")
+  (check-encoding-equal? (*vmov-imm 'al 'double 0  6.0)    "08 0B B1 EE")
+  (check-encoding-equal? (*vmov-imm 'al 'double 0 12.0)    "08 0B B2 EE")
+  (check-encoding-equal? (*vmov-imm 'al 'double 0 24.0)    "08 0B B3 EE")
+
+  (check-encoding-equal? (*vmov-imm 'al 'double 0  -1.0)    "00 0B BF EE")
+  (check-encoding-equal? (*vmov-imm 'al 'double 0  -2.0)    "00 0B B8 EE")
+  (check-encoding-equal? (*vmov-imm 'al 'double 0 -10.0)    "04 0B BA EE")
+  (check-encoding-equal? (*vmov-imm 'al 'double 0  -0.1875) "08 0B BC EE")
+  (check-encoding-equal? (*vmov-imm 'al 'double 0  -0.375)  "08 0B BD EE")
+  (check-encoding-equal? (*vmov-imm 'al 'double 0  -0.75)   "08 0B BE EE")
+  (check-encoding-equal? (*vmov-imm 'al 'double 0  -1.5)    "08 0B BF EE")
+  (check-encoding-equal? (*vmov-imm 'al 'double 0  -3.0)    "08 0B B8 EE")
+  (check-encoding-equal? (*vmov-imm 'al 'double 0  -6.0)    "08 0B B9 EE")
+  (check-encoding-equal? (*vmov-imm 'al 'double 0 -12.0)    "08 0B BA EE")
+  (check-encoding-equal? (*vmov-imm 'al 'double 0 -24.0)    "08 0B BB EE")
+
+  (check-encoding-equal? (*vmov-imm 'al 'single 0  1.0)    "00 0A B7 EE")
+  (check-encoding-equal? (*vmov-imm 'al 'single 0  2.0)    "00 0A B0 EE")
+
+  ;; 10.0 = 01000001 00100000 00000000 00000000
+  ;;        aBbbbbbc defgh--- -------- --------
+  ;; --> abcdefgh = 00100100
+  (check-equal? (vfp-encode-immediate 'single 10.0) #b00100100)
+
+  (check-encoding-equal? (*vmov-imm 'al 'single 0 10.0)    "04 0A B2 EE")
+  (check-encoding-equal? (*vmov-imm 'al 'single 0  0.1875) "08 0A B4 EE")
+  (check-encoding-equal? (*vmov-imm 'al 'single 0  0.375)  "08 0A B5 EE")
+  (check-encoding-equal? (*vmov-imm 'al 'single 0  0.75)   "08 0A B6 EE")
+  (check-encoding-equal? (*vmov-imm 'al 'single 0  1.5)    "08 0A B7 EE")
+  (check-encoding-equal? (*vmov-imm 'al 'single 0  3.0)    "08 0A B0 EE")
+  (check-encoding-equal? (*vmov-imm 'al 'single 0  6.0)    "08 0A B1 EE")
+  (check-encoding-equal? (*vmov-imm 'al 'single 0 12.0)    "08 0A B2 EE")
+  (check-encoding-equal? (*vmov-imm 'al 'single 0 24.0)    "08 0A B3 EE")
+
+  (check-encoding-equal? (*vmov-imm 'al 'single 0  -1.0)    "00 0A BF EE")
+  (check-encoding-equal? (*vmov-imm 'al 'single 0  -2.0)    "00 0A B8 EE")
+  (check-encoding-equal? (*vmov-imm 'al 'single 0 -10.0)    "04 0A BA EE")
+  (check-encoding-equal? (*vmov-imm 'al 'single 0  -0.1875) "08 0A BC EE")
+  (check-encoding-equal? (*vmov-imm 'al 'single 0  -0.375)  "08 0A BD EE")
+  (check-encoding-equal? (*vmov-imm 'al 'single 0  -0.75)   "08 0A BE EE")
+  (check-encoding-equal? (*vmov-imm 'al 'single 0  -1.5)    "08 0A BF EE")
+  (check-encoding-equal? (*vmov-imm 'al 'single 0  -3.0)    "08 0A B8 EE")
+  (check-encoding-equal? (*vmov-imm 'al 'single 0  -6.0)    "08 0A B9 EE")
+  (check-encoding-equal? (*vmov-imm 'al 'single 0 -12.0)    "08 0A BA EE")
+  (check-encoding-equal? (*vmov-imm 'al 'single 0 -24.0)    "08 0A BB EE")
+
+  (check-encoding-equal? (*vmov-reg 'al 'double 0 1) "41 0B B0 EE")
+  (check-encoding-equal? (*vmov-reg 'al 'double 16 17) "61 0B F0 EE")
+
+  (check-encoding-equal? (*vmov-reg 'al 'single 0 1) "60 0A B0 EE")
+  (check-encoding-equal? (*vmov-reg 'al 'single 16 17) "68 8A B0 EE")
+
+  (check-encoding-equal? (*vcmp-reg 'al 'double #f 0 1) "41 0B B4 EE")
+  (check-encoding-equal? (*vcmp-reg 'al 'double #f 16 17) "61 0B F4 EE")
+  (check-encoding-equal? (*vcmp-reg 'al 'double #t 0 1) "C1 0B B4 EE")
+  (check-encoding-equal? (*vcmp-reg 'al 'double #t 16 17) "E1 0B F4 EE")
+
+  (check-encoding-equal? (*vcmp-reg 'al 'single #f 0 1) "60 0A B4 EE")
+  (check-encoding-equal? (*vcmp-reg 'al 'single #f 16 17) "68 8A B4 EE")
+  (check-encoding-equal? (*vcmp-reg 'al 'single #t 0 1) "E0 0A B4 EE")
+  (check-encoding-equal? (*vcmp-reg 'al 'single #t 16 17) "E8 8A B4 EE")
+
+  (check-encoding-equal? (*vcmp-zero 'al 'double #f 0) "40 0B B5 EE")
+  (check-encoding-equal? (*vcmp-zero 'al 'double #f 16) "40 0B F5 EE")
+  (check-encoding-equal? (*vcmp-zero 'al 'double #t 0) "C0 0B B5 EE")
+  (check-encoding-equal? (*vcmp-zero 'al 'double #t 16) "C0 0B F5 EE")
+
+  (check-encoding-equal? (*vcmp-zero 'al 'single #f 0) "40 0A B5 EE")
+  (check-encoding-equal? (*vcmp-zero 'al 'single #f 16) "40 8A B5 EE")
+  (check-encoding-equal? (*vcmp-zero 'al 'single #t 0) "C0 0A B5 EE")
+  (check-encoding-equal? (*vcmp-zero 'al 'single #t 16) "C0 8A B5 EE")
+
+  (check-encoding-equal? (*vmla 'al 'double 0 1 2) "02 0B 01 EE")
+  (check-encoding-equal? (*vmla 'al 'double 16 17 18) "A2 0B 41 EE")
+  (check-encoding-equal? (*vmls 'al 'double 0 1 2) "42 0B 01 EE")
+  (check-encoding-equal? (*vmls 'al 'double 16 17 18) "E2 0B 41 EE")
+
+  (check-encoding-equal? (*vmla 'al 'single 0 1 2) "81 0A 00 EE")
+  (check-encoding-equal? (*vmla 'al 'single 16 17 18) "89 8A 08 EE")
+  (check-encoding-equal? (*vmls 'al 'single 0 1 2) "C1 0A 00 EE")
+  (check-encoding-equal? (*vmls 'al 'single 16 17 18) "C9 8A 08 EE")
+  )
