@@ -732,4 +732,6 @@
   (check-encoding-equal? (*vmla 'al 'single 's16 's17 's18) "89 8A 08 EE")
   (check-encoding-equal? (*vmls 'al 'single 's0 's1 's2) "C1 0A 00 EE")
   (check-encoding-equal? (*vmls 'al 'single 's16 's17 's18) "C9 8A 08 EE")
+
+  (check-encoding-equal? (*cmn 'al 'r0 1) "01 00 70 E3")
   )
