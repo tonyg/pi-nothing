@@ -1,0 +1,20 @@
+#!/bin/sh
+echo "Type (C-a x) to terminate qemu in -nographic mode"
+echo
+
+IOOPTIONS="-serial stdio"
+# IOOPTIONS="-nographic"
+
+qemu-system-arm \
+    -M versatilepb \
+    -m 128M \
+    $IOOPTIONS \
+    \
+    -net user \
+    -net nic,model=rtl8139 \
+    \
+    -usb \
+    \
+    -kernel versatilepb-graphics.img \
+    \
+    "$@"

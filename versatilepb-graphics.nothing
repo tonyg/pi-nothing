@@ -1,0 +1,352 @@
+;; -*- mode: scheme -*-
+;; Copyright (C) 2012 Tony Garnock-Jones <tonygarnockjones@gmail.com>
+;;
+;; This file is part of pi-nothing.
+;;
+;; pi-nothing is free software: you can redistribute it and/or modify
+;; it under the terms of the GNU General Public License as published
+;; by the Free Software Foundation, either version 3 of the License,
+;; or (at your option) any later version.
+;;
+;; pi-nothing is distributed in the hope that it will be useful, but
+;; WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+;; General Public License for more details.
+;;
+;; You should have received a copy of the GNU General Public License
+;; along with pi-nothing. If not, see <http://www.gnu.org/licenses/>.
+
+(struct uart ((dr word)
+	      (rsr-ecr word)
+	      (reserved1 byte 16)
+	      (fr word)
+	      (reserved2 byte 4)
+	      (lpr word)
+	      (ibrd word)
+	      (fbrd word)
+	      (lcr-h word)
+	      (cr word)
+	      (ifls word)
+	      (imsc word)
+	      (ris word)
+	      (mis word)
+	      (icr word)
+	      (dmacr word)))
+
+(const uart0 #x101f1000)
+(const uart-flag-rx-fifo-empty #x10)
+(const uart-flag-tx-fifo-full #x20)
+
+(define (division-by-zero a b)
+  (puts (data #"Division by zero\0"))
+  (while (= 0 0)))
+
+(define (putc ch)
+  (while (<> (binand (? (+ uart0 uart-fr)) uart-flag-tx-fifo-full) 0))
+  (! (+ uart0 uart-dr) ch))
+
+(define (poll-for-char)
+  (if (<> (binand (? (+ uart0 uart-fr)) uart-flag-rx-fifo-empty) 0)
+      -1
+      (? (+ uart0 uart-dr))))
+
+(define (getc)
+  (let ((mutable ch -1))
+    (while (= ch -1)
+      (set! ch (poll-for-char)))
+    ch))
+
+(define (puts p)
+  (let ((ch (?byte p)))
+    (when (<> ch 0)
+      (putc ch)
+      (puts (+ p 1)))))
+
+(define (putn* i)
+  (if (<> i 0)
+      (begin (putn* (/ i 10))
+	     (putc (+ (% i 10) 48)))
+      0))
+
+(define (putn i)
+  (if (<> i 0)
+      (putn* i)
+      (putc 48)))
+
+(define (putx n)
+  (let ((mutable shift 28))
+    (while (>=s shift 0)
+      (let ((digit (binand 15 (>>u n shift))))
+	(putc (+ digit (if (>=u digit 10)
+			   55 ;; 65 - 10
+			   48)))
+	(set! shift (- shift 4))))))
+
+(define (newline)
+  (putc 13)
+  (putc 10))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(const N_PCI_BASE_ADDRESS_REGISTERS 6)
+
+(const PCI_HEADER_TYPE_GENERAL #x00)
+(const PCI_HEADER_TYPE_BRIDGE #x01)
+(const PCI_HEADER_TYPE_CARDBUS #x02)
+
+(const PCI_HEADER_TYPE_MULTI_FUNCTION_MASK #x80)
+(const PCI_HEADER_TYPE_MASK #x7f)
+
+(const PCI_CLASS_LEGACY #x00) ;; Device was built prior definition of the class code field
+(const PCI_CLASS_STORAGE #x01) ;; Mass Storage Controller
+(const PCI_CLASS_NETWORK #x02) ;; Network Controller
+(const PCI_CLASS_DISPLAY #x03) ;; Display Controller
+(const PCI_CLASS_MULTIMEDIA #x04) ;; Multimedia Controller
+(const PCI_CLASS_MEMORY #x05) ;; Memory Controller
+(const PCI_CLASS_BRIDGE #x06) ;; Bridge Device
+(const PCI_CLASS_SIMPLE_COMM #x07) ;; Simple Communication Controllers
+(const PCI_CLASS_BASE_SYSTEM_PERIPHERAL #x08) ;; Base System Peripherals
+(const PCI_CLASS_INPUT #x09) ;; Input Devices
+(const PCI_CLASS_DOCK #x0A) ;; Docking Stations
+(const PCI_CLASS_PROCESSOR #x0B) ;; Processors
+(const PCI_CLASS_SERIAL_BUS #x0C) ;; Serial Bus Controllers
+(const PCI_CLASS_WIRELESS #x0D) ;; Wireless Controllers
+(const PCI_CLASS_INTELLIGENT_IO #x0E) ;; Intelligent I/O Controllers
+(const PCI_CLASS_SATELLITE_COMM #x0F) ;; Satellite Communication Controllers
+(const PCI_CLASS_CRYPTO #x10) ;; Encryption/Decryption Controllers
+(const PCI_CLASS_DASP #x11) ;; Data Acquisition and Signal Processing Controllers
+;; others reserved
+(const PCI_CLASS_MISC #xFF) ;; Device does not fit any defined class.
+
+;; N.B.: This lines up with struct pci-device below!
+(const PCI_REGISTER_VENDOR_ID 0)
+(const PCI_REGISTER_DEVICE_ID 2)
+(const PCI_REGISTER_COMMAND 4)
+(const PCI_REGISTER_STATUS 6)
+(const PCI_REGISTER_REVISION_ID 8)
+(const PCI_REGISTER_PROG_IF 9)
+(const PCI_REGISTER_SUBCLASS 10)
+(const PCI_REGISTER_CLASS_CODE 11)
+(const PCI_REGISTER_CACHE_LINE_SIZE 12)
+(const PCI_REGISTER_LATENCY_TIMER 13)
+(const PCI_REGISTER_HEADER_TYPE 14)
+(const PCI_REGISTER_BIST 15)
+(const PCI_REGISTER_BAR0 16)
+(const PCI_REGISTER_BAR1 20)
+(const PCI_REGISTER_BAR2 24)
+(const PCI_REGISTER_BAR3 28)
+(const PCI_REGISTER_BAR4 32)
+(const PCI_REGISTER_BAR5 36)
+(const PCI_REGISTER_CARDBUS_CIS_POINTER 40)
+(const PCI_REGISTER_SUBSYSTEM_VENDOR_ID 44)
+(const PCI_REGISTER_SUBSYSTEM_ID 46)
+(const PCI_REGISTER_EXPANSION_ROM_BASE_ADDRESS 48)
+(const PCI_REGISTER_CAPABILITIES_POINTER 52)
+(const PCI_REGISTER_INTERRUPT_LINE 60)
+(const PCI_REGISTER_INTERRUPT_PIN 61)
+(const PCI_REGISTER_MIN_GRANT 62)
+(const PCI_REGISTER_MAX_LATENCY 63)
+
+(const PCI_COMMAND_IO_SPACE #x0001)
+(const PCI_COMMAND_MEMORY_SPACE #x0002)
+(const PCI_COMMAND_BUS_MASTER #x0004)
+(const PCI_COMMAND_SPECIAL_CYCLES #x0008)
+(const PCI_COMMAND_MEMORY_WRITE_AND_INVALIDATE_ENABLE #x0010)
+(const PCI_COMMAND_VGA_PALETTE_SNOOP #x0020)
+(const PCI_COMMAND_PARITY_ERROR_RESPONSE #x0040)
+(const PCI_COMMAND_SERR_ENABLE #x0100)
+(const PCI_COMMAND_FAST_BACKTOBACK_ENABLE #x0200)
+(const PCI_COMMAND_INTERRUPT_DISABLE #x0400)
+
+(const PCI_STATUS_INTERRUPT #x0008)
+(const PCI_STATUS_CAPABILITIES_LIST #x0010)
+(const PCI_STATUS_66_MHZ_CAPABLE #x0020)
+(const PCI_STATUS_FAST_BACKTOBACK_CAPABLE #x0080)
+(const PCI_STATUS_MASTER_DATA_PARITY_ERROR #x0100)
+(const PCI_STATUS_DEVSEL_MASK #x0600)
+(const PCI_STATUS_DEVSEL_FAST #x0000)
+(const PCI_STATUS_DEVSEL_MEDIUM #x0200)
+(const PCI_STATUS_DEVSEL_SLOW #x0400)
+(const PCI_STATUS_SIGNALED_TARGET_ABORT #x0800)
+(const PCI_STATUS_RECEIVED_TARGET_ABORT #x1000)
+(const PCI_STATUS_RECEIVED_MASTER_ABORT #x2000)
+(const PCI_STATUS_SIGNALED_SYSTEM_ERROR #x4000)
+(const PCI_STATUS_DETECTED_PARITY_ERROR #x8000)
+
+(struct pci-device ((vendor-id word) ;; vendor ID in low 16 bits, device ID in high 16 bits
+		    (status-command word)
+		    (class-code-rev-id word)
+		    (bist word)
+		    (bars word 6) ;; TODO: would be nice to reuse N_PCI_BASE_ADDRESS_REGISTERS here
+		    (cardbus-cis-pointer word)
+		    (subsystem-id word) ;; vendor ID in low 16 bits, subsystem ID proper in high
+		    (expansion-rom-base word)
+		    (unused word)
+		    (reserved word)
+		    (max-lat-min-gnt-interrupt-pin-interrupt-line word)))
+
+(define (?pci slot offset)
+  (? (+ #x42000000 (<< slot 11) offset)))
+
+(define (!pci slot offset value)
+  (! (+ #x42000000 (<< slot 11) offset) value))
+
+;; TODO: ARM emitter can't cope with such a large constant right now,
+;; which is why this is a subroutine. Gross!
+(define (self-id) #x030010ee) ;; Vendor/device for PB926EJ-S
+
+(define (find-self-slot)
+  ;; http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.dui0224i/Cacdijji.html
+  (let ((mutable i 11))
+    (while (<u i 32)
+      (when (= (? (+ #x41000000 (<< i 11))) (self-id))
+	(return i))
+      (set! i (+ i 1)))))
+
+(define (configure-pci-slot slot)
+  (let ((vendor-id (?pci slot pci-device-vendor-id)))
+    (when (<> vendor-id -1)
+      (puts (data #"Slot number \0")) (putn slot) (putc 32) (putx vendor-id) (newline)
+      (puts (data #"Class/Rev \0")) (putx (?pci slot pci-device-class-code-rev-id)) (newline)
+      (let ((mutable bar-num 0))
+	(while (<u bar-num N_PCI_BASE_ADDRESS_REGISTERS)
+	  (puts (data #"BAR \0")) (putn bar-num) (putc 32)
+	  (putx (?pci slot (+ pci-device-bars (<< bar-num 4))))
+	  (newline)
+	  (set! bar-num (+ bar-num 1))))
+      )))
+
+(define (configure-pci)
+  ;; http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.dui0224i/Cacdijji.html
+  (if (<> (binand 1 (? #x10000044)) 0)
+      (let ((self-slot (find-self-slot)))
+	(puts (data #"PCI configuration\n\n\0"))
+	(puts (data #"Self-slot: \0")) (putn self-slot) (newline)
+	(! #x1000100c self-slot) ;; set PCI_SELFID register
+	;; TODO: should the following bus master config happen at
+	;; #x41000000 instead of #x42000000?
+	(!pci self-slot pci-device-status-command
+	      (binor (?pci self-slot pci-device-status-command)
+		     PCI_COMMAND_BUS_MASTER)) ;; "set bit 2"
+	;; Now scan the bus
+	(let ((mutable i 11))
+	  (while (<u i 32)
+	    (configure-pci-slot i)
+	    (set! i (+ i 1)))))
+      (puts (data #"PCI not present on board\n\0"))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; CLCDC, "Color LCD Controller"
+;; http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.dui0224i/Cachedgd.html
+;; http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.dui0225d/CACCIDGI.html
+;; http://infocenter.arm.com/help/topic/com.arm.doc.ddi0161e/DDI0161.pdf
+
+(const sys-oscclk4 #x1000001c)
+(const clcdc-base #x10120000)
+(struct clcdc ((timing0 word)
+	       (timing1 word)
+	       (timing2 word)
+	       (timing3 word) ;; N.B. only the low 17 bits are used
+	       (upbase word)
+	       (lpbase word)
+	       ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+	       ;; WARNING: A real PL110 has imsc BEFORE control.
+	       ;;
+	       ;; qemu's versatilepb variation on PL110 has them in
+	       ;; the following order, which is NOT the order as
+	       ;; specified by ARM.
+	       ;;
+	       (control word) ;; 5 bits used
+	       (imsc word) ;; 16 bits used
+	       ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+	       (ris word) ;; 5 bits used
+	       (mis word) ;; 5 bits used
+	       (icr word) ;; 5 bits used
+	       (upcurr word)
+	       (lpcurr word)
+	       ))
+
+(define (framebuffer)
+  #x100000) ;; !!! yuck
+
+(define (set-clcdc-control-bits! n)
+  (! (+ clcdc-base clcdc-control)
+     (binor (? (+ clcdc-base clcdc-control))
+	    n)))
+
+(define (set-resolution-800x600!)
+  ;; Set up screen timings for 800x600.
+  ;; See http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.dui0224i/Cachedgd.html
+  (! sys-oscclk4 #x2cac)
+  (! (+ clcdc-base clcdc-timing0) #x1313a4c4)
+  (! (+ clcdc-base clcdc-timing1) #x0505f657)
+  (! (+ clcdc-base clcdc-timing2) #x071f1800))
+
+(define (set-resolution-640x480!)
+  ;; Set up screen timings for 640x480.
+  ;; See http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.dui0224i/Cachedgd.html
+  (! sys-oscclk4 #x2c77)
+  (! (+ clcdc-base clcdc-timing0) #x3f1f3f9c)
+  (! (+ clcdc-base clcdc-timing1) #x090b61df)
+  (! (+ clcdc-base clcdc-timing2) #x067f1800))
+
+(define (configure-display)
+  (puts (data #"CLCDC Setup\n\0"))
+  (putx (? (+ clcdc-base #xfe0))) (newline)
+  (putx (? (+ clcdc-base #xfe4))) (newline)
+  (putx (? (+ clcdc-base #xfe8))) (newline)
+  (putx (? (+ clcdc-base #xfec))) (newline)
+  (putx (? (+ clcdc-base #xff0))) (newline)
+  (putx (? (+ clcdc-base #xff4))) (newline)
+  (putx (? (+ clcdc-base #xff8))) (newline)
+  (putx (? (+ clcdc-base #xffc))) (newline)
+
+  (set-resolution-800x600!)
+  ;; (set-resolution-640x480!)
+  (let ((mutable n 0)
+	(limit (* (* 800 600) 4)))
+    (while (<u n limit)
+      (! (+ (framebuffer) n) n)
+      (set! n (+ n 4))))
+
+  ;; Must set base address before turning on the display.
+  (! (+ clcdc-base clcdc-upbase) (framebuffer))
+
+  ;; Control word:
+  ;; #x82b = 0000100000101011
+  ;;
+  ;;         fedcba9876543210
+  ;;
+  ;;             | power
+  ;;                   | lcd is tft
+  ;;                     ||| bits-per-pixel: 5 = 24bpp
+  ;;                        | enable
+  (set-clcdc-control-bits! (<< 5 1))
+  (set-clcdc-control-bits! (<< 1 5))
+
+  ;; Power-up routine (from page 1-5 of DDI0161):
+  ;;  - set LcdEn bit (low bit, bit 0) in the control register
+  ;;  - wait a display specific (!) number of milliseconds for things to stabilise
+  ;;  - set LcdPwr (bit 11) in the control register
+  (set-clcdc-control-bits! (<< 1 0))
+  ;; Linux waits for 20ms here.
+  (set-clcdc-control-bits! (<< 1 11))
+
+  (puts (data #"CLCDC control reg: \0"))
+  (putx (? (+ clcdc-base clcdc-control)))
+  (newline)
+  )
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(define (main)
+  (configure-pci)
+  (configure-display)
+  (newline)
+  (puts (data #"Hello, world!\n\0"))
+  (while (= 0 0)
+    (let ((ch (getc)))
+      (puts (data #"You typed: \0"))
+      (putc ch)
+      (newline))))
