@@ -152,6 +152,14 @@
 		(define r (fresh-reg))
 		(list `(move-word ,r ,s1)
 		      `(,op ,target ,r ,s2))]
+	       [`(,(and op (or 'w+ 'w- 'w* 'wand 'wor 'wxor 'wdiv 'wmod))
+		  ,target
+		  ,s1
+		  ,(? lit? s2))
+                #:when (not (best-rotation-exists? (lit-val s2)))
+		(define r (fresh-reg))
+		(list `(move-word ,r ,s2)
+		      `(,op ,target ,s1 ,r))]
 	       [`(w* ,target ,s1 ,(? non-reg? s2))
 		;; ARM multiply instructions only work with two registers as sources.
 		(define r (fresh-reg))
@@ -171,6 +179,16 @@
 		(define r (fresh-reg))
 		(list `(move-word ,r ,m)
 		      `(compare/jmp ,cmpop ,target ,n ,r))]
+               [`(compare/set ,cmpop ,target ,n ,(? lit? m))
+                #:when (not (best-rotation-exists? (lit-val m)))
+		(define r (fresh-reg))
+		(list `(move-word ,r ,m)
+                      `(compare/set ,cmpop ,target ,n ,r))]
+               [`(compare/jmp ,cmpop ,target ,n ,(? lit? m))
+                #:when (not (best-rotation-exists? (lit-val m)))
+		(define r (fresh-reg))
+		(list `(move-word ,r ,m)
+                      `(compare/jmp ,cmpop ,target ,n ,r))]
 	       [`(,(and op (or 'load-word 'load-byte)) ,(temporary n) ,source ,offset)
 		(define r (fresh-reg))
 		(list `(,op ,r ,source ,offset)
