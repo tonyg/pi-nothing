@@ -149,7 +149,7 @@
 		    (let ((r (fresh-reg)))
 		      (list `(move-word ,r ,m)
 			    `(move-word ,n ,r))))]
-	       [`(,(and op (or 'w+ 'w- 'w* 'wdiv 'wmod)) ,target ,s1 ,s2)
+	       [`(,(and op (or 'w+ 'w- 'w* 'wand 'wor 'wxor 'wdiv 'wmod)) ,target ,s1 ,s2)
 		(shuffle-for-two-args (lambda (o i1 i2) `(,op ,o ,i1 ,i2))
 				      target
 				      s1
@@ -207,6 +207,9 @@
     [`(w+ ,target ,target ,source)			(*op 'add (xs source) (xs target))]
     [`(w- ,target ,target ,source)			(*op 'sub (xs source) (xs target))]
     [`(w* ,target ,target ,source)			(*imul (xs source) (xs target))]
+    [`(wand ,target ,target ,source)			(*op 'and (xs source) (xs target))]
+    [`(wor ,target ,target ,source)			(*op 'or (xs source) (xs target))]
+    [`(wxor ,target ,target ,source)			(*op 'xor (xs source) (xs target))]
     [`(wdiv ,(preg 'rax) ,(preg 'rax) ,(preg r))	(*div r)]
     [`(wmod ,(preg 'rax) ,(preg 'rax) ,(preg r))	(*div r)]
     [`(wshift ,op ,target ,target ,amount)		(case op
