@@ -142,22 +142,22 @@
 (define (interrupt:undefined-instruction)
   (puts (data #"interrupt:undefined-instruction\n\0"))
   (debug:halt)
-  0)
+  0) ;; either 0 or 4 depending on whether to skip the insn or retry it
 
 (define (interrupt:swi)
   (puts (data #"interrupt:swi\n\0"))
   (debug:halt)
-  0)
+  0) ;; will return immediately after the SWI
 
 (define (interrupt:prefetch-abort)
   (puts (data #"interrupt:prefetch-abort\n\0"))
   (debug:halt)
-  0)
+  0) ;; either 0 or 4 depending on whether to skip the insn or retry it
 
 (define (interrupt:data-abort)
   (puts (data #"interrupt:data-abort\n\0"))
   (debug:halt)
-  0)
+  0) ;; either 4 or 8 depending on whether to skip the insn or retry it
 
 (define (interrupt:unused)
   (puts (data #":unused\n\0"))
@@ -171,12 +171,12 @@
   ;; here, so we can't clear the condition and will loop forever.
   ;; We leave the clearing of the condition to user code.
   ;; (debug:halt)
-  0)
+  4) ;; not zero! otherwise we end up skipping an instruction
 
 (define (interrupt:fiq)
   (puts (data #"interrupt:fiq\n\0"))
   (debug:halt)
-  0)
+  4) ;; not zero! otherwise we end up skipping an instruction
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
