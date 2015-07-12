@@ -201,6 +201,8 @@
   (define a (address-mode->address am))
   (define delta (@reg-delta a))
   (define u (reg-u a))
+  (when (negative? delta)
+    (error 'ldr-or-str "Cannot encode negative delta (use '- in @reg to get subtraction)"))
   (imm32* (bitfield 4 (condition-code-num cc)
 		    2 1
 		    1 (bool->bit (@delta-reg? delta))
