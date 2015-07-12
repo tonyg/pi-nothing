@@ -331,9 +331,9 @@
 
 (define ((assemble-instr* xs sp-delta) i)
   (define-values (icode idata) ((assemble-instr xs sp-delta) i))
-  (write `(,i -> ,icode ,idata))
-  (newline)
-  (flush-output)
+  ;; (write `(,i -> ,icode ,idata))
+  ;; (newline)
+  ;; (flush-output)
   (values icode idata))
 
 (define (assemble inward-arg-count most-tail-args temp-count leaf? instrs)

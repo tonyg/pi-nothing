@@ -42,8 +42,8 @@
 				      [`(tailcall ,_ ,_ ,args) (length args)]
 				      [_ 0])
 				     body-instrs)))
-  (pretty-print `(pre-expansion (body-instrs ,body-instrs)
-				(body-data ,body-data)))
+  ;; (pretty-print `(pre-expansion (body-instrs ,body-instrs)
+  ;;       			(body-data ,body-data)))
   (define init-arg-instrs (do ((i 0 (+ i 1))
 			       (rib rib (cdr rib))
 			       (prolog '() (cons `(move-word ,(cadr (car rib))
@@ -60,11 +60,11 @@
   ;; 		  (temp-count ,temp-count)))
   ;;(pretty-print `(post-allocation ,allocated-instrs))
   (define peepholed-instrs (peephole allocated-instrs))
-  (pretty-print `(peepholed-instrs ,peepholed-instrs))
+  ;; (pretty-print `(peepholed-instrs ,peepholed-instrs))
   (define-values (machine-code machine-data)
     (assemble md argcount most-tail-args temp-count leaf? peepholed-instrs))
-  (pretty-print `(pre-linking (machine-code ,machine-code)
-			      (machine-data ,machine-data)))
+  ;; (pretty-print `(pre-linking (machine-code ,machine-code)
+  ;;       		      (machine-data ,machine-data)))
   (values machine-code
 	  (list machine-data
 		body-data)))
