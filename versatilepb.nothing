@@ -37,9 +37,16 @@
 (const uart-flag-rx-fifo-empty #x10)
 (const uart-flag-tx-fifo-full #x20)
 
+;; Tells the UART to signal an interrupt. Still need to enable
+;; interrupts at the VIC and at the CPU.
+(define (uart-enable-interrupt)
+  (let ((old (? (+ uart0 uart-imsc))))
+    (puts (data #"UART-IMSC: \0")) (putx old) (newline)
+    (! (+ uart0 uart-imsc) (binor old (<< 1 4))))) ;; RXIM
+
 (define (division-by-zero a b)
   (puts (data #"Division by zero\0"))
-  (while (= 0 0)))
+  (debug:halt))
 
 (define (putc ch)
   (while (<> (binand (? (+ uart0 uart-fr)) uart-flag-tx-fifo-full) 0))
@@ -85,6 +92,91 @@
 (define (newline)
   (putc 13)
   (putc 10))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Interrupt table
+
+;; TODO: Limitation on the linker means this routine has to be early
+;; in the image, so that the offset to
+;; sys:exception-handler-undefined-instruction etc isn't too large to
+;; fit in an instruction. See the label-linker instance in
+;; `indirect-immediate` in mach-arm7.rkt. A more flexible linker would
+;; be able to put the needed value in the data quasisegment, like the
+;; non-label branch does.
+(define (configure-interrupt-table)
+  (let ((mutable vec 0))
+    (while (<u vec 8)
+      (! (<< vec 2) #xe59ff018) ;; LDR PC, [PC, #24]
+      (set! vec (+ vec 1))))
+  (! #x20 interrupt:reset)
+  (! #x24 sys:exception-handler-undefined-instruction)
+  (! sys:interrupt-vector-undefined-instruction interrupt:undefined-instruction)
+  (! #x28 sys:exception-handler-swi)
+  (! sys:interrupt-vector-swi interrupt:swi)
+  (! #x2c sys:exception-handler-prefetch-abort)
+  (! sys:interrupt-vector-prefetch-abort interrupt:prefetch-abort)
+  (! #x30 sys:exception-handler-data-abort)
+  (! sys:interrupt-vector-data-abort interrupt:data-abort)
+  (! #x34 interrupt:unused)
+  (! #x38 sys:exception-handler-irq)
+  (! sys:interrupt-vector-irq interrupt:irq)
+  (! #x3c sys:exception-handler-fiq)
+  (! sys:interrupt-vector-fiq interrupt:fiq))
+
+(define (cpu-enable-interrupts)
+  (sys:set-cpsr (binand (sys:get-cpsr) #xffffff3f))) ;; clear I and F bits
+
+(define (cpu-disable-interrupts)
+  (sys:set-cpsr (binor (sys:get-cpsr) #xc0))) ;; set I and F bits
+
+(define (debug:halt)
+  (puts (data #"debug:halt\n\0"))
+  (cpu-disable-interrupts)
+  (while (= 0 0) (sys:wait-for-interrupt))) ;; doesn't actually suspend if pending interrupt still uncleared.
+
+(define (interrupt:reset)
+  (puts (data #"interrupt:reset\n\0"))
+  (debug:halt)
+  0)
+
+(define (interrupt:undefined-instruction)
+  (puts (data #"interrupt:undefined-instruction\n\0"))
+  (debug:halt)
+  0)
+
+(define (interrupt:swi)
+  (puts (data #"interrupt:swi\n\0"))
+  (debug:halt)
+  0)
+
+(define (interrupt:prefetch-abort)
+  (puts (data #"interrupt:prefetch-abort\n\0"))
+  (debug:halt)
+  0)
+
+(define (interrupt:data-abort)
+  (puts (data #"interrupt:data-abort\n\0"))
+  (debug:halt)
+  0)
+
+(define (interrupt:unused)
+  (puts (data #":unused\n\0"))
+  (debug:halt)
+  0)
+
+(define (interrupt:irq)
+  ;; (puts (data #"interrupt:irq\n\0"))
+  (sys:set-spsr (binor (sys:get-spsr) #xc0)) ;; disable interrupts when we return from this handler.
+  ;; ^ we do this because we don't know which interrupt caused us
+  ;; here, so we can't clear the condition and will loop forever.
+  ;; We leave the clearing of the condition to user code.
+  ;; (debug:halt)
+  0)
+
+(define (interrupt:fiq)
+  (puts (data #"interrupt:fiq\n\0"))
+  (debug:halt)
+  0)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -233,12 +325,70 @@
       (puts (data #"PCI not present on board\n\0"))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; VIC, Vectored Interrupt Controller
+;; http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.ddi0273a/index.html
+
+(struct vic ((irq-status word)
+	     (fiq-status word)
+	     (raw-interrupt-status word)
+	     (int-select word)
+	     (int-enable word)
+	     (int-enable-clear word)
+	     (software-interrupt word)
+	     (software-interrupt-clear word)
+	     (protection-enable word)
+	     (software-priority-mask word)
+	     (priority-daisy word)))
+(const vic-vector-address-base #x100) ;; 32 word-size regs here, then unused
+(const vic-vector-priority-base #x200) ;; 32 word-size regs here, then unused
+(const vic-address #xf00) ;; one word-size reg here
+(const vic-peripheral-id-byte0 #xfe0) ;; one byte-size reg here; low byte
+(const vic-peripheral-id-byte1 #xfe4) ;; one byte-size reg here
+(const vic-peripheral-id-byte2 #xfe8) ;; one byte-size reg here
+(const vic-peripheral-id-byte3 #xfec) ;; one byte-size reg here; high byte
+(const vic-primecell-id-byte0 #xff0) ;; one byte-size reg here; low byte
+(const vic-primecell-id-byte1 #xff4) ;; one byte-size reg here
+(const vic-primecell-id-byte2 #xff8) ;; one byte-size reg here
+(const vic-primecell-id-byte3 #xffc) ;; one byte-size reg here; high byte
+
+(const vic0 #x10140000)
+
+(define (vic-enable-all-interrupts)
+  (! (+ vic0 vic-int-enable) #xffffffff))
+
+(define (configure-vic)
+  (vic-enable-all-interrupts)
+  ;; Enable VIC protection, disables access to the VIC from user mode:
+  (! (+ vic0 vic-protection-enable) (binor (? (+ vic0 vic-protection-enable)) 1)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define (main)
+  (configure-interrupt-table)
+  (cpu-enable-interrupts)
+  (configure-vic)
+  (uart-enable-interrupt)
   (configure-pci)
   (newline)
   (puts (data #"Hello, world!\n\0"))
+  ;; (putx (? #x00)) (newline)
+  ;; (putx (? #x04)) (newline)
+  ;; (putx (? #x08)) (newline)
+  ;; (putx (? #x0c)) (newline)
+  ;; (putx (? #x10)) (newline)
+  ;; (putx (? #x14)) (newline)
+  ;; (putx (? #x18)) (newline)
+  ;; (putx (? #x1c)) (newline)
+  ;; (putx (? #x20)) (newline)
+  ;; (putx (? #x24)) (newline)
+  ;; (putx (? #x28)) (newline)
+  ;; (putx (? #x2c)) (newline)
   (while (= 0 0)
+    (sys:wait-for-interrupt)
+    ;; Clear the interrupt:
+    (! (+ uart0 uart-icr) (<< 1 4))
+    ;; Now reenable interrupts:
+    (cpu-enable-interrupts)
     (let ((ch (getc)))
       (puts (data #"You typed: \0"))
       (putc ch)

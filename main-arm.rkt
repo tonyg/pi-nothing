@@ -93,6 +93,75 @@
 	  (*pop 'al '(r7 lr))
 	  (*b 'al (label-reference 'division-by-zero))))
 
+(define (exception-handler fiq? vector-address-label)
+  (define reglist (if fiq?
+                      '(r0 r1 r2 r3 r4 r5 r6 r7)
+                      '(r0 r1 r2 r3 r4 r5 r6 r7 r8 r9 r10 r11 r12)))
+  (list (*push 'al reglist)
+        (label-linker vector-address-label
+                      4
+                      (lambda (delta i)
+                        (define adjusted (- delta 8)) ;; (pc+8)-relative
+                        (*ldr 'al
+                              'r0
+                              (if (negative? adjusted)
+                                  (@reg 'pc '- (- adjusted))
+                                  (@reg 'pc '+ adjusted)))))
+        (*mov 'al 0 'r11 'lr) ;; R11 is saved in our calling convention
+        (*mov 'al 0 'lr 'pc) ;; gets this-instruction-plus-eight because of pipelining
+        (*mov 'al 0 'pc 'r0)
+        ;; here is where lr points after the mov-to-lr just above
+        ;; R0 expected now to have a *positive* offset for LR in it, to be subtracted.
+        (*sub 'al 0 'lr 'r11 'r0)
+        (*pop 'al reglist)
+        (*mov 'al 1 'pc 'lr) ;; the S bit makes SPSR -> CPSR, i.e. "iret"
+        ))
+
+(define (system-management-code)
+  (list (label-anchor 'sys:wait-for-interrupt)
+          ;; Per ARM ARM, cache management functions take the form
+          ;; MCR p15, 0, <Rd>, c7, <CRm>, <opcode2>
+          ;; where Wait For Interrupt has Rd=0, CRm=0, opcode2=4
+          (*mcr 'al 15 0 'r0 7 0 4)
+          (*mov 'al 0 'pc 'lr)
+        (label-anchor 'sys:get-cpsr)
+          (*mrs 'al #f 'r0)
+          (*mov 'al 0 'pc 'lr)
+        (label-anchor 'sys:get-spsr)
+          (*mrs 'al #t 'r0)
+          (*mov 'al 0 'pc 'lr)
+        (label-anchor 'sys:set-cpsr)
+          (*msr 'al #f '(c x s f) 'r0)
+          (*mov 'al 0 'pc 'lr)
+        (label-anchor 'sys:set-spsr)
+          (*msr 'al #t '(c x s f) 'r0)
+          (*mov 'al 0 'pc 'lr)
+        (label-anchor 'sys:interrupt-vector-undefined-instruction)
+          0 0 0 0 ;; undefined instruction, normal ret returns to just after failing insn
+        (label-anchor 'sys:exception-handler-undefined-instruction)
+          (exception-handler #f 'sys:interrupt-vector-undefined-instruction)
+        (label-anchor 'sys:interrupt-vector-swi)
+          0 0 0 0 ;; swi, normal ret returns to just after swi
+        (label-anchor 'sys:exception-handler-swi)
+          (exception-handler #f 'sys:interrupt-vector-swi)
+        (label-anchor 'sys:interrupt-vector-prefetch-abort)
+          0 0 0 0 ;; prefetch abort, normal ret returns to after failure PLUS FOUR
+        (label-anchor 'sys:exception-handler-prefetch-abort)
+          (exception-handler #f 'sys:interrupt-vector-prefetch-abort)
+        (label-anchor 'sys:interrupt-vector-data-abort)
+          0 0 0 0 ;; data abort, normal ret returns to after failure PLUS EIGHT
+        (label-anchor 'sys:exception-handler-data-abort)
+          (exception-handler #f 'sys:interrupt-vector-data-abort)
+        (label-anchor 'sys:interrupt-vector-irq)
+          0 0 0 0 ;; irq, normal ret returns to FOUR BYTES after normal next insn
+        (label-anchor 'sys:exception-handler-irq)
+          (exception-handler #f 'sys:interrupt-vector-irq)
+        (label-anchor 'sys:interrupt-vector-fiq)
+          0 0 0 0 ;; fiq, normal ret returns to FOUR BYTES after normal next insn
+        (label-anchor 'sys:exception-handler-fiq)
+          (exception-handler #t 'sys:interrupt-vector-fiq)
+        ))
+
 (define (compile-toplevel form global-env)
   (match form
     [`(define (,proc ,argname ...)
@@ -108,6 +177,7 @@
 (define (link-blobs blobs)
   (define all-blobs (list* (startup-code)
 			   (__udivsi3-code)
+                           (system-management-code)
 			   blobs))
   (pretty-print `(all-blobs ,all-blobs))
   (define-values (linked0 relocs link-map) (link all-blobs (start-addr)))
