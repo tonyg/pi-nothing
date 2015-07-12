@@ -38,8 +38,22 @@
 (define output-file (make-parameter #f))
 
 (define (startup-code)
+  (define stack-top (stack-origin))
+  (define (allocate-stack! npages)
+    (begin0 stack-top
+      (set! stack-top (- stack-top (* npages 4096)))))
   (list (*mov 'al 0 'lr 0)
-	(*mov 'al 0 'sp (stack-origin))
+
+        ;; Set up stack pointers in all modes, including SVC mode (the current mode)
+        (let ((disable-interrupts #xc0))
+          (list (*mrs 'al #f 'r0)
+                (*msr 'al #f '(c) (bitwise-ior disable-interrupts arm-mode-fiq))
+                (*mov 'al 0 'sp (allocate-stack! 1))
+                (*msr 'al #f '(c) (bitwise-ior disable-interrupts arm-mode-irq))
+                (*mov 'al 0 'sp (allocate-stack! 1))
+                (*msr 'al #f '(c) 'r0)
+                (*mov 'al 0 'sp stack-top)))
+
 	(*bl 'al (label-reference 'main))
 	(*b 'al 0) ;; loop forever
 	))
