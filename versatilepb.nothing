@@ -191,15 +191,12 @@
 (define (!pci slot offset value)
   (! (+ #x42000000 (<< slot 11) offset) value))
 
-;; TODO: ARM emitter can't cope with such a large constant right now,
-;; which is why this is a subroutine. Gross!
-(define (self-id) #x030010ee) ;; Vendor/device for PB926EJ-S
-
 (define (find-self-slot)
   ;; http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.dui0224i/Cacdijji.html
   (let ((mutable i 11))
     (while (<u i 32)
-      (when (= (? (+ #x41000000 (<< i 11))) (self-id))
+      (when (= (? (+ #x41000000 (<< i 11)))
+	       #x030010ee) ;; Vendor/device for PB926EJ-S
 	(return i))
       (set! i (+ i 1)))))
 
