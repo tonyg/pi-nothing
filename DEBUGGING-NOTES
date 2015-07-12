@@ -1,0 +1,7 @@
+Supply -s to qemu-system-arm: starts a gdb server listening on localhost:1234
+
+In arm-none-eabi-gdb:
+  target remote localhost:1234
+  layout asm
+
+Make sure to put '*' on addresses given to 'break'.
