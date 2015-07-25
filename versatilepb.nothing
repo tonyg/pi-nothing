@@ -28,8 +28,8 @@
 	      (cr word)
 	      (ifls word)
 	      (imsc word)
-	      (ris word)
-	      (mis word)
+	      (raw-interrupt-status word) ;; a.k.a. RIS
+	      (masked-interrupt-status word) ;; a.k.a. MIS
 	      (icr word)
 	      (dmacr word)))
 
@@ -43,6 +43,9 @@
   (let ((old (? (+ uart0 uart-imsc))))
     (puts (data #"UART-IMSC: \0")) (putx old) (newline)
     (! (+ uart0 uart-imsc) (binor old (<< 1 4))))) ;; RXIM
+
+(define (uart-interrupt-status)
+  (? (+ uart0 uart-masked-interrupt-status)))
 
 (define (division-by-zero a b)
   (puts (data #"Division by zero\0"))
@@ -362,10 +365,71 @@
   (! (+ vic0 vic-protection-enable) (binor (? (+ vic0 vic-protection-enable)) 1)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Timer, SP804; two individual channels
+;; http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.ddi0271d/index.html
+;; http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.ddi0271d/Babgabfg.html
+;; https://singpolyma.net/2012/02/writing-a-simple-os-kernel-hardware-interrupts/
+
+(struct timer ((load word)
+	       (value word)
+	       (control word) ;; only 8 bits used
+	       (intclr word)
+	       (raw-interrupt-status word)
+	       (masked-interrupt-status word)
+	       (background-load word)))
+
+;; There are two register groups, one per free-running-clock; one at
+;; offset 0, the other at offset 32.
+(const timer-frc0-base #x00)
+(const timer-frc1-base #x20)
+
+;; Control word bits (really, control byte)
+(const timer-control-enabled #x80)
+(const timer-control-periodic #x40) ;; set = periodic; clear = free-running
+(const timer-control-interrupt-enabled #x20)
+(const timer-control-prescale-1 #x00)   ;; }
+(const timer-control-prescale-16 #x04)  ;; }-- bits ....XX.. control prescaler
+(const timer-control-prescale-256 #x08) ;; }      (N.B. 11 -> undefined)
+(const timer-control-32bit #x02) ;; set = 32-bit counter; clear = 16-bit
+(const timer-control-oneshot #x01) ;; set = oneshot; clear = wrapping
+
+(const timer0 #x101e2000)
+
+(define (configure-timer)
+  ;; Configure frc0 as a regular one-second tick with an interrupt
+  ;; configured
+  (let ((base (+ timer0 timer-frc0-base)))
+    (! (+ base timer-control) 0) ;; disable temporarily
+    (! (+ base timer-load) 1000000) ;; microseconds apparently
+    (! (+ base timer-control)
+       (binor timer-control-enabled
+	      timer-control-periodic
+	      timer-control-interrupt-enabled
+	      timer-control-prescale-1
+	      timer-control-32bit)))
+  ;; Configure frc1 as a free-running counter (of microseconds,
+  ;; presumably) with no interrupt configured
+  (let ((base (+ timer0 timer-frc1-base)))
+    (! (+ base timer-control) 0) ;; disable temporarily
+    (! (+ base timer-load) 0) ;; microseconds apparently
+    (! (+ base timer-control)
+       (binor timer-control-enabled
+	      timer-control-prescale-1
+	      timer-control-32bit))))
+
+(define (check-timer)
+  (let ((base (+ timer0 timer-frc0-base)))
+    (when (<> (? (+ base timer-masked-interrupt-status)) 0)
+      (! (+ base timer-intclr) 0)
+      (puts (data #"Tick \0"))
+      (putn (- 0 (? (+ timer0 timer-frc1-base timer-value))))
+      (newline))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define (main)
   (configure-interrupt-table)
-  (cpu-enable-interrupts)
+  (configure-timer)
   (configure-vic)
   (uart-enable-interrupt)
   (configure-pci)
@@ -384,12 +448,16 @@
   ;; (putx (? #x28)) (newline)
   ;; (putx (? #x2c)) (newline)
   (while (= 0 0)
-    (sys:wait-for-interrupt)
-    ;; Clear the interrupt:
-    (! (+ uart0 uart-icr) (<< 1 4))
-    ;; Now reenable interrupts:
+    ;; Now (re)enable interrupts:
     (cpu-enable-interrupts)
-    (let ((ch (getc)))
-      (puts (data #"You typed: \0"))
-      (putc ch)
-      (newline))))
+    (sys:wait-for-interrupt)
+    ;; Interrupts disabled at this point. Will be reenabled at the top
+    ;; of the loop.
+    (check-timer)
+    (when (<> (uart-interrupt-status) 0)
+      ;; Clear the interrupt:
+      (! (+ uart0 uart-icr) (<< 1 4))
+      (let ((ch (getc)))
+	(puts (data #"You typed: \0"))
+	(putc ch)
+	(newline)))))
