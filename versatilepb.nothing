@@ -423,13 +423,39 @@
       (! (+ base timer-intclr) 0)
       (puts (data #"Tick \0"))
       (putn (- 0 (? (+ timer0 timer-frc1-base timer-value))))
+      (putc 32)
+      (putn (rtc-value))
       (newline))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; PL031 Real-Time Clock
+;; http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.ddi0224b/i1006087.html
+
+(struct rtc ((data word)
+	     (match word)
+	     (load word)
+	     (control word)
+	     (interrupt-mask-set-and-clear word)
+	     (raw-interrupt-status word)
+	     (masked-interrupt-status word)
+	     (intclr word)))
+
+(const rtc0 #x101e8000)
+
+(define (configure-rtc)
+  (! (+ rtc0 rtc-interrupt-mask-set-and-clear) 0) ;; mask out the match interrupt - we don't want it
+  (! (+ rtc0 rtc-control) 1) ;; enable the RTC. (System reset needed to disable again!)
+  )
+
+(define (rtc-value)
+  (? (+ rtc0 rtc-data)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define (main)
   (configure-interrupt-table)
   (configure-timer)
+  (configure-rtc)
   (configure-vic)
   (uart-enable-interrupt)
   (configure-pci)
