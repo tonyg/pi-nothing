@@ -169,6 +169,7 @@
 
 (define (interrupt:irq)
   ;; (puts (data #"interrupt:irq\n\0"))
+  (? (+ vic0 vic-address)) ;; dummy read -- see vic-nonvectored-irq-status
   (sys:set-spsr (binor (sys:get-spsr) #xc0)) ;; disable interrupts when we return from this handler.
   ;; ^ we do this because we don't know which interrupt caused us
   ;; here, so we can't clear the condition and will loop forever.
@@ -364,6 +365,14 @@
   ;; Enable VIC protection, disables access to the VIC from user mode:
   (! (+ vic0 vic-protection-enable) (binor (? (+ vic0 vic-protection-enable)) 1)))
 
+(define (check-vic-irq-status)
+  ;; See http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.ddi0273a/CJAECAJB.html
+  ;; We did the dummy read of vic-address in interrupt:irq.
+  (puts (data #"VICIRQSTATUS:\0"))
+  (putx (? (+ vic0 vic-irq-status)))
+  (putc 32)
+  (! (+ vic0 vic-address) 0)) ;; Clears the intterupt in the VIC, apparently?
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Timer, SP804; two individual channels
 ;; http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.ddi0271d/index.html
@@ -479,6 +488,7 @@
     (sys:wait-for-interrupt)
     ;; Interrupts disabled at this point. Will be reenabled at the top
     ;; of the loop.
+    (check-vic-irq-status)
     (check-timer)
     (when (<> (uart-interrupt-status) 0)
       ;; Clear the interrupt:
