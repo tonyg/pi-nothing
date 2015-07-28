@@ -461,7 +461,17 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(define (main)
+(define (dump-atags base limit)
+  (let ((mutable n 0))
+    (while (<u n limit)
+      (let ((v (? (+ base (<< n 2)))))
+	(puts (data #"ATAG \0"))
+	(putx base) (putc 58) ;; colon
+	(putx n) (putc 32)
+	(putx v) (newline)
+	(set! n (+ n 1))))))
+
+(define (main arg0 arg1 atags-base arg3)
   (configure-interrupt-table)
   (configure-timer)
   (configure-rtc)
@@ -470,6 +480,7 @@
   (configure-pci)
   (newline)
   (puts (data #"Hello, world!\n\0"))
+  (dump-atags atags-base 16)
   ;; (putx (? #x00)) (newline)
   ;; (putx (? #x04)) (newline)
   ;; (putx (? #x08)) (newline)
