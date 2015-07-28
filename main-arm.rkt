@@ -46,14 +46,16 @@
 
         ;; Set up stack pointers in all modes, including SVC mode (the current mode)
         (let ((disable-interrupts #xc0))
-          (list (*mrs 'al #f 'r0)
+          (list (*mrs 'al #f 'r8) ;; avoid stomping on R0-R3, which are used for ATAGs etc.
                 (*msr 'al #f '(c) (bitwise-ior disable-interrupts arm-mode-fiq))
                 (*mov 'al 0 'sp (allocate-stack! 1))
                 (*msr 'al #f '(c) (bitwise-ior disable-interrupts arm-mode-irq))
                 (*mov 'al 0 'sp (allocate-stack! 1))
-                (*msr 'al #f '(c) 'r0)
+                (*msr 'al #f '(c) 'r8)
                 (*mov 'al 0 'sp stack-top)))
 
+        ;; because we took care to preserve R0-R3, they are implicitly
+        ;; visible as the first four arguments to main.
 	(*bl 'al (label-reference 'main))
 	(*b 'al 0) ;; loop forever
 	))
