@@ -40,15 +40,16 @@
 			       4 ;; space for ebp that we don't use right now
 			       ))
 
+(define killed-regs '(eax edx ecx))
+(define saved-regs '(ebx esi edi))
+
 ;; At the moment putting the preferred register later in the list
 ;; makes it tried first. See the details of how the recursion in
 ;; find-available-register works.
-(define available-regs (map preg (list 'ebx 'ecx 'edx 'esi 'edi 'eax
-				       ;; 'ebp ;; TODO: add EBP?
-				       )))
-
-(define killed-regs '(eax edx ecx))
-(define saved-regs '(ebx esi edi))
+(define available-regs (map preg (append
+                                  ;; '(ebp) ;; TODO: add EBP?
+                                  (reverse saved-regs)
+                                  (reverse killed-regs))))
 
 (define ((expand-instruction saved-locs) instr)
   (match instr

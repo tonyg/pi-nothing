@@ -48,14 +48,12 @@
 			       0
 			       0))
 
-(define available-regs (map preg (list 'lr
-				       'r11 'r10 'r9 'r8
-				       'r7 'r6 'r5 'r4
-				       'r3 'r2 'r1 'r0)))
-
-
 (define killed-regs '(r0 r1 r2 r3 lr))
 (define saved-regs '(r4 r5 r6 r7 r8 r9 r10 r11 lr))
+
+(define available-regs (map preg (append (reverse saved-regs)
+                                         (reverse (filter (lambda (r) (not (memq r saved-regs)))
+                                                          killed-regs)))))
 
 (define ((expand-instruction saved-locs) instr)
   (match instr

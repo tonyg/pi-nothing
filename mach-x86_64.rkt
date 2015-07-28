@@ -40,17 +40,14 @@
 			       8  ;; space for rbp that we don't use right now
 			       ))
 
+(define killed-regs '(rax rcx rdx rsi rdi r8 r9 r10 r11))
+(define saved-regs '(rbp rbx r12 r13 r14 r15))
+
 ;; At the moment putting the preferred register later in the list
 ;; makes it tried first. See the details of how the recursion in
 ;; find-available-register works.
-(define available-regs (map preg (list
-				  'rbp
-				  'r8 'r9 'r10 'r11 'r12 'r13 'r14 'r15
-				  'rbx 'rcx 'rdx 'rsi 'rdi 'rax
-				  )))
-
-(define killed-regs '(rcx rdx rsi rdi rax r8 r9 r10 r11))
-(define saved-regs '(rbp rbx r12 r13 r14 r15))
+(define available-regs (map preg (append (reverse saved-regs)
+                                         (reverse killed-regs))))
 
 (define ((expand-instruction saved-locs) instr)
   (match instr
