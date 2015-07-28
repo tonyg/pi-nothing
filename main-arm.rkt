@@ -250,6 +250,7 @@
       #:exists 'replace)))
 
 (require racket/cmdline)
+(file-stream-buffer-mode (current-output-port) 'none)
 (compile-and-link
  (command-line
   #:program "main-arm.rkt"

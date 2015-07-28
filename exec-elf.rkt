@@ -225,6 +225,7 @@
     (write-image filename-base bs)))
 
 (require racket/cmdline)
+(file-stream-buffer-mode (current-output-port) 'none)
 (compile-and-link
  (command-line
   #:program "exec-elf.rkt"
