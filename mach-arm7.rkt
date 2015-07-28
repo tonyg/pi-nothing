@@ -110,6 +110,9 @@
     [`(wshift ,op ,(? reg-or-preg? target) ,(lit n) ,shift-amount)
      (list `(move-word ,target ,(lit n))
 	   `(wshift ,op ,target ,target ,shift-amount))]
+    [`(,(and op (or 'compare/set 'compare/jmp)) ,cmpop ,target ,(? lit? n) ,m)
+     #:when (not (lit? m))
+     (list `(,op ,(negate-cmpop cmpop) ,target ,m ,n))]
     [i
      (list i)]))
 
