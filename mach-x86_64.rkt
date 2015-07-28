@@ -154,12 +154,6 @@
 				      target
 				      s1
 				      s2)]
-	       [`(compare/set ,cmpop ,target ,(? lit? n) ,(? lit? m))
-		(list `(move-word ,target ,(lit (evaluate-cmpop cmpop (lit-val n) (lit-val m)))))]
-	       [`(compare/jmp ,cmpop ,target ,(? lit? n) ,(? lit? m))
-		(if (not (zero? (evaluate-cmpop cmpop (lit-val n) (lit-val m))))
-		    (list `(jmp ,target))
-		    (list))]
 	       [`(compare/set ,cmpop ,target ,(? memory-location? n) ,(? memory-location? m))
 		(define r (fresh-reg))
 		(list `(move-word ,r ,m)
@@ -216,6 +210,12 @@
 							  [(<<) (*shl (xs amount) (xs target))]
 							  [(>>u) (*shr (xs amount) (xs target))]
 							  [(>>s) (*sar (xs amount) (xs target))])]
+    [`(compare/set ,cmpop ,(preg 'rax) ,(? lit? n) ,(? lit? m))
+     (*mov (evaluate-cmpop cmpop (lit-val n) (lit-val m)) 'rax)]
+    [`(compare/jmp ,cmpop ,(label tag) ,(? lit? n) ,(? lit? m))
+     (if (not (zero? (evaluate-cmpop cmpop (lit-val n) (lit-val m))))
+         (*jmp (label-reference tag))
+         '())]
     [`(compare/set ,cmpop ,(preg 'rax) ,s1 ,s2)
      (comparison-code cmpop (xs s1) (xs s2)
 		      (lambda (cc)

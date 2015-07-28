@@ -168,12 +168,6 @@
 		(define r (fresh-reg))
 		(list `(move-word ,r ,s2)
 		      `(w* ,target ,s1 ,r))]
-	       [`(compare/set ,cmpop ,target ,(? lit? n) ,(? lit? m))
-		(list `(move-word ,target ,(lit (evaluate-cmpop cmpop (lit-val n) (lit-val m)))))]
-	       [`(compare/jmp ,cmpop ,target ,(? lit? n) ,(? lit? m))
-		(if (not (zero? (evaluate-cmpop cmpop (lit-val n) (lit-val m))))
-		    (list `(jmp ,target))
-		    (list))]
 	       [`(compare/set ,cmpop ,target ,(? memory-location? n) ,(? memory-location? m))
 		(define r (fresh-reg))
 		(list `(move-word ,r ,m)
@@ -306,6 +300,12 @@
 					       [(<<) shift-val]
 					       [(>>u) (@lsr shift-val)]
 					       [(>>s) (@asr shift-val)]))))]
+    [`(compare/set ,cmpop ,target ,(? lit? n) ,(? lit? m))
+     (nodata (*mov 'al 0 (xs target) (evaluate-cmpop cmpop (lit-val n) (lit-val m))))]
+    [`(compare/jmp ,cmpop ,(label tag) ,(? lit? n) ,(? lit? m))
+     (if (not (zero? (evaluate-cmpop cmpop (lit-val n) (lit-val m))))
+         (nodata (*b 'al (label-reference tag)))
+         (nodata '()))]
     [`(compare/set ,cmpop ,target ,s1 ,s2)
      (comparison-code cmpop (xs s1) (xs s2)
 		      (lambda (cc)
