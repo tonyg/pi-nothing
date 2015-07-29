@@ -141,10 +141,10 @@
       (set! n (- n 1)))))
 
 (define (short-delay)
-  (delay-countdown #x200000))
+  (delay-countdown #x2000000))
 
 (define (long-delay)
-  (delay-countdown #x600000))
+  (delay-countdown #x6000000))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -633,6 +633,44 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+(define (enable-caches)
+  ;;                                      .     Instruction caches (bit 12)
+  ;;                                       .    Branch prediction (bit 11)
+  ;;                                         .  Data caches (bit 2)
+  (sys:set-sctlr (binor (sys:get-sctlr) #x1804)))
+
+;; Drastically simplified.
+(define (store-page-table-entry! pagetable-base virtaddr physaddr flags)
+  (let ((entry-num (>>u virtaddr 20)))
+    (! (+ pagetable-base (<< entry-num 2))
+       (binor (<< (>>u physaddr 20) 20)
+	      flags
+	      2))))
+
+(define (configure-mmu-identity-mapping)
+  ;; Let's arbitrarily (!) place our root page table at #x4000. Qemu
+  ;; loads versatilepb images to #x10000, and Raspberry Pi images load
+  ;; to #x8000, so we have just enough room for our 16k page table at
+  ;; #x4000 on a Raspberry Pi.
+  (let ((pagetable-base #x4000))
+    (let ((mutable addr 0))
+      (while (<u addr #x40000000)
+	(let ((flags (if (<> (binand addr #x20000000) 0)
+			 #x00000000    ;; nothing, i.e. not cacheable
+			 #x0000000c))) ;; C and B, i.e. cacheable
+	  (store-page-table-entry! pagetable-base addr addr flags)
+	  (store-page-table-entry! pagetable-base (+ addr #x40000000) (+ addr #x40000000) flags)
+	  (store-page-table-entry! pagetable-base (+ addr #x80000000) (+ addr #x80000000) flags)
+	  (store-page-table-entry! pagetable-base (+ addr #xC0000000) (+ addr #xC0000000) flags))
+	(set! addr (+ addr #x100000))))
+    (sys:set-mmu-domains #xffffffff) ;; All Master mode, no checks
+    (sys:set-ttbr0 pagetable-base)
+    (sys:set-ttbr1 pagetable-base)
+    (sys:set-ttbcr 0)
+    (sys:set-sctlr (binor (sys:get-sctlr) 1))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 (define (print-banner con)
   (console-puts con
 		(data #"Welcome to MINOS for Raspberry Pi\n"
@@ -648,8 +686,17 @@
 (define (main always-zero machine-type atags-base)
   (enable-led)
   (configure-interrupt-table)
+  (enable-caches)
   (init-alloc!)
   (let ((fbinfo (initialize-framebuffer)))
+    ;; Would like to call configure-mmu-identity-mapping earlier --
+    ;; just after enable-caches -- but can't, because there's some BUG
+    ;; (TODO) that prevents the mailbox from working, so if
+    ;; configure-mmu-identity-mapping is before initialize-framebuffer
+    ;; we crash out with %error-framebuffer-mode-set-failed and
+    ;; argument %error-bad-mailbox-channel. Weird. Presumably the page
+    ;; mapping is wrong somehow?
+    (configure-mmu-identity-mapping)
     (let ((con (make-console fbinfo)))
       (print-banner con)
       (print-memory-info con)
@@ -664,6 +711,14 @@
       (dump-devicetree con atags-base)
 
       (cpu-enable-interrupts)
+
+      ;; Both L1 **and** L2 clean required: L1 first, flushes to L2;
+      ;; then L2, flushes to RAM. Without these, incomplete rendering
+      ;; of the dumped devicetree (or whatever the console last
+      ;; printed)!
+      (sys:clean-l1-data-cache)
+      (sys:clean-l2-data-cache)
+
       (sys:wait-for-interrupt)
       (error %error-no-error))))
 

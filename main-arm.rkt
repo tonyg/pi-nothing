@@ -120,13 +120,26 @@
         (*mov 'al 1 'pc 'lr) ;; the S bit makes SPSR -> CPSR, i.e. "iret"
         ))
 
+(define (define-coprocessor-fetch name n op1 crn crm op2)
+  (list (label-anchor name)
+        (*mrc 'al n op1 'r0 crn crm op2)
+        (*mov 'al 0 'pc 'lr)))
+
+(define (define-coprocessor-store name n op1 crn crm op2)
+  (list (label-anchor name)
+        (*mcr 'al n op1 'r0 crn crm op2)
+        (*mov 'al 0 'pc 'lr)))
+
 (define (system-management-code)
-  (list (label-anchor 'sys:wait-for-interrupt)
-          ;; Per ARM ARM, cache management functions take the form
-          ;; MCR p15, 0, <Rd>, c7, <CRm>, <opcode2>
-          ;; where Wait For Interrupt has Rd=0, CRm=0, opcode2=4
-          (*mcr 'al 15 0 'r0 7 0 4)
-          (*mov 'al 0 'pc 'lr)
+  (list ;; Per ARM ARM, cache management functions take the form
+        ;; MCR p15, 0, <Rd>, c7, <CRm>, <opcode2>
+        ;; where Wait For Interrupt has Rd=0, CRm=0, opcode2=4
+        ;;
+        ;; TODO: ARMv7 makes this UNPREDICTABLE! and replaces it
+        ;; with a specific WFI instruction.
+        ;;
+        (define-coprocessor-store 'sys:wait-for-interrupt 15 0 7 0 4)
+
         (label-anchor 'sys:get-cpsr)
           (*mrs 'al #f 'r0)
           (*mov 'al 0 'pc 'lr)
@@ -139,6 +152,33 @@
         (label-anchor 'sys:set-spsr)
           (*msr 'al #t '(c x s f) 'r0)
           (*mov 'al 0 'pc 'lr)
+
+        (define-coprocessor-fetch 'sys:get-sctlr 15 0 1 0 0) ;; SCTLR = System Control Register
+        (define-coprocessor-store 'sys:set-sctlr 15 0 1 0 0)
+
+        (define-coprocessor-fetch 'sys:get-ttbr0 15 0 2 0 0) ;; TTBR0 = root page table addr 0
+        (define-coprocessor-store 'sys:set-ttbr0 15 0 2 0 0)
+        (define-coprocessor-fetch 'sys:get-ttbr1 15 0 2 0 1) ;; TTBR1 = root page table addr 0
+        (define-coprocessor-store 'sys:set-ttbr1 15 0 2 0 1)
+        (define-coprocessor-fetch 'sys:get-ttbcr 15 0 2 0 2) ;; TTBCR = Transl. Table Base Ctl Reg
+        (define-coprocessor-store 'sys:set-ttbcr 15 0 2 0 2)
+
+        (define-coprocessor-fetch 'sys:get-mmu-domains 15 0 3 0 0)
+        (define-coprocessor-store 'sys:set-mmu-domains 15 0 3 0 0)
+
+        ;; Cache management
+        (define-coprocessor-store 'sys:invalidate-instruction-cache 15 0 7 5 0)
+        (label-anchor 'sys:instruction-sync-barrier)
+        (label-anchor 'sys:instruction-mem-barrier)
+        (define-coprocessor-store 'sys:flush-prefetch-buffer 15 0 7 5 4)
+        (define-coprocessor-store 'sys:flush-branch-target-cache 15 0 7 5 6)
+        (define-coprocessor-store 'sys:invalidate-data-cache 15 0 7 6 0)
+        (define-coprocessor-store 'sys:clean-l1-data-cache 15 0 7 10 0)
+        (define-coprocessor-store 'sys:clean-l2-data-cache 15 1 7 10 0)
+        ;; TODO: ARMv7-specific instruction replaces the next two definitions:
+        (define-coprocessor-store 'sys:data-sync-barrier 15 0 7 10 4)
+        (define-coprocessor-store 'sys:data-mem-barrier 15 0 7 10 5)
+
         (label-anchor 'sys:interrupt-vector-undefined-instruction)
           0 0 0 0 ;; undefined instruction, normal ret returns to just after failing insn
         (label-anchor 'sys:exception-handler-undefined-instruction)
