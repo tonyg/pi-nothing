@@ -35,6 +35,8 @@
 
 (const %error-framebuffer-mode-set-failed		#x00000020)
 
+(const %error-devicetree-bad-node-type			#x00000040)
+
 (define (error code)
   (pulse-bits-forever code))
 
@@ -353,22 +355,226 @@
 				       48)))
 	(set! shift (- shift 4))))))
 
+(define (console-putxdigit con n)
+  (let ((digit (binand 15 n)))
+    (console-putc con (+ digit (if (>=u digit 10) 55 48)))))
+
+(define (console-putx-block con bs len)
+  (let ((mutable n 0))
+    (while (<u n len)
+      (let ((b (?byte (+ bs n))))
+	(console-putxdigit con (>>u b 4))
+	(console-putxdigit con b))
+      (set! n (+ n 1)))))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(define (main)
+(const ATAG_NONE	#x00000000)
+(const ATAG_CORE	#x54410001)
+(const ATAG_MEM		#x54410002)
+(const ATAG_VIDEOTEXT	#x54410003)
+(const ATAG_RAMDISK	#x54410004)
+(const ATAG_INITRD2	#x54420005) ;; yes, really, not #x54410005. Presumably that was INITRD1?
+(const ATAG_SERIAL	#x54410006)
+(const ATAG_REVISION	#x54410007)
+(const ATAG_VIDEOLFB	#x54410008)
+(const ATAG_CMDLINE	#x54410009)
+
+(define (dump-atag-word con base field-number description-str)
+  (console-putc con 32)
+  (console-putc con 32)
+  (console-putx con (? (+ base (<< (+ field-number 2) 2))))
+  (console-putc con 32)
+  (console-puts con description-str)
+  (console-newline con))
+
+(define (dump-atag-core con base)
+  (dump-atag-word con base 0 (data #"flags\0"))
+  (dump-atag-word con base 1 (data #"pagesize\0"))
+  (dump-atag-word con base 2 (data #"rootdev\0")))
+
+(define (dump-atag-mem con base)
+  (dump-atag-word con base 0 (data #"size\0"))
+  (dump-atag-word con base 1 (data #"start\0")))
+
+(define (dump-atag-cmdline con base)
+  (console-putc con 32)
+  (console-putc con 32)
+  (console-puts con (+ base 8))
+  (console-newline con))
+
+(define (dump-atags con base)
+  (let ((size (? base))
+	(tag (? (+ base 4))))
+    (console-puts con (data #"ATAG #x\0"))
+    (console-putx con tag)
+    (console-puts con (data #" size \0"))
+    (console-putn con size)
+    (console-newline con)
+    (when (= tag ATAG_CORE) (dump-atag-core con base))
+    (when (= tag ATAG_MEM) (dump-atag-mem con base))
+    (when (= tag ATAG_CMDLINE) (dump-atag-cmdline con base))
+    (when (<> tag ATAG_NONE)
+      (dump-atags con (+ base (<< size 2))))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(struct boot-param-header ((magic word)
+			   (totalsize word)
+			   (off_dt_struct word)
+			   (off_dt_strings word)
+			   (off_mem_rsvmap word)
+			   (version word)
+			   (last_comp_version word)
+			   ;; Version 2 fields:
+			   (boot_cpuid_phys word)
+			   ;; Version 3 fields:
+			   (size_dt_strings word)
+			   ;; Version 17 fields:
+			   (size_dt_struct word)))
+
+(const OF_DT_HEADER	#xD00DFEED)
+(const OF_DT_BEGIN_NODE #x00000001)
+(const OF_DT_END_NODE	#x00000002)
+(const OF_DT_PROP	#x00000003)
+(const OF_DT_END	#x00000009)
+
+(define (byte-swap v)
+  (binor (>>u v 24)
+	 (binand (>>u v 8) #xff00)
+	 (binand (<< v 8) #xff0000)
+	 (<< v 24)))
+
+(define (?be addr)
+  (byte-swap (? addr)))
+
+(define (print-indent con amount)
+  (let ((mutable n 0))
+    (while (<u n amount)
+      (console-putc con 32)
+      (set! n (+ n 1)))))
+
+(define (strlen p)
+  (let ((mutable p p)
+	(mutable count 0)
+	(mutable ch (?byte p)))
+    (while (<> ch 0)
+      (set! count (+ count 1))
+      (set! p (+ p 1))
+      (set! ch (?byte p)))
+    count))
+
+(define (round-up-to-4-bytes n)
+  (binand #xfffffffc (+ n 3)))
+
+(define (dump-dt-properties con p strings-base indent)
+  (let ((prop-type (?be p)))
+    (if (<> prop-type OF_DT_PROP)
+	p ;; return address of potential children (or end of node)
+	(let ((prop-value-size (?be (+ p 4)))
+	      (prop-name-offset (?be (+ p 8)))
+	      (prop-value-base (+ p 12)))
+	  (let ((next-p (+ prop-value-base (round-up-to-4-bytes prop-value-size)))
+		(prop-name (+ strings-base prop-name-offset)))
+	    (print-indent con indent)
+	    (console-putc con 64)
+	    (console-puts con prop-name)
+	    (console-putc con (data #" size \0"))
+	    (console-putn con prop-value-size)
+	    (console-putc con 32)
+	    (console-putx-block con prop-value-base prop-value-size)
+	    (console-newline con)
+	    (dump-dt-properties con next-p strings-base indent))))))
+
+(define (dump-dt-children con p strings-base indent)
+  (let ((node-type (?be p)))
+    (if (logor (= node-type OF_DT_END_NODE)
+	       (= node-type OF_DT_END))
+	(+ p 4) ;; return address of next (potential) node
+	(if (<> node-type OF_DT_BEGIN_NODE)
+	    (begin (console-puts con (data #"Unexpected devicetree node type \0"))
+		   (console-putx con node-type)
+		   (console-newline con)
+		   (error %error-devicetree-bad-node-type))
+	    (let ((prop-base
+		   (let ((node-name (+ p 4)))
+		     (print-indent con indent)
+		     (console-putc con 34)
+		     (console-puts con node-name)
+		     (console-putc con 34)
+		     (console-newline con)
+		     (+ node-name (round-up-to-4-bytes (+ (strlen node-name) 1))))))
+	      (let ((children-base (dump-dt-properties con prop-base strings-base (+ indent 2))))
+		(let ((next-p (dump-dt-children con children-base strings-base (+ indent 2))))
+		  (dump-dt-children con next-p strings-base indent))))))))
+
+(define (dump-block-be con p word-count)
+  (console-putx con p)
+  (console-putc con 58)
+  (let ((mutable n 0))
+    (while (<u n word-count)
+      (console-putc con 32)
+      (console-putx con (?be (+ p (<< n 2))))
+      (let ((column (binand n 3)))
+	(set! n (+ n 1))
+	(when (= column 3)
+	  (console-newline con)
+	  (console-putx con (+ p (<< n 2)))
+	  (console-putc con 58))))))
+
+(define (dump-devicetree con base)
+  (when (= (?be (+ base boot-param-header-magic)) OF_DT_HEADER)
+    (let ((totalsize (?be (+ base boot-param-header-totalsize)))
+	  (struct-base (+ base (?be (+ base boot-param-header-off_dt_struct))))
+	  (strings-base (+ base (?be (+ base boot-param-header-off_dt_strings))))
+	  (memory-map-base (+ base (?be (+ base boot-param-header-off_mem_rsvmap))))
+	  (version (?be (+ base boot-param-header-version))))
+      (console-puts con (data #"Devicetree version \0"))
+      (console-putn con version)
+      (console-newline con)
+      (when (>=u version 16) ;; earlier versions have full paths
+			     ;; instead of node leaf names - we don't
+	;; support the older format
+	;; (dump-block-be con struct-base 64 #;(>>u totalsize 2))
+	(console-putx con base) (console-newline con)
+	(console-putx con struct-base) (console-newline con)
+	(console-putx con strings-base) (console-newline con)
+	(console-putx con memory-map-base) (console-newline con)
+	(dump-dt-children con struct-base strings-base 2)
+	(console-puts con (data #"Done.\0"))
+	))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(define (print-banner con)
+  (console-puts con (data #"Welcome to MINOS for Raspberry Pi\n\0"))
+  (console-puts con
+		(data #"Copyright (C) 2012 Tony Garnock-Jones <tonygarnockjones@gmail.com>\n\0")))
+
+(define (print-memory-info con)
+  (console-puts con (data #"ARM memory \0"))
+  (console-putn con (get-arm-memory con))
+  (console-puts con (data #" bytes; VC memory \0"))
+  (console-putn con (get-vc-memory con))
+  (console-puts con (data #" bytes\n\0")))
+
+(define (main always-zero machine-type atags-base)
   (enable-led)
   (init-alloc!)
   (let ((fbinfo (initialize-framebuffer)))
     (let ((con (make-console fbinfo)))
-      (console-puts con (data #"Welcome to MINOS for Raspberry Pi\n\0"))
-      (console-puts con
-       (data #"Copyright (C) 2012 Tony Garnock-Jones <tonygarnockjones@gmail.com>\n\0"))
-      (console-puts con (data #"ARM memory: \0"))
-      (console-putn con (get-arm-memory con))
+      (print-banner con)
+      (print-memory-info con)
+
+      (console-puts con (data #"Machine type \0"))
+      (console-putn con machine-type)
       (console-newline con)
-      (console-puts con (data #"VC memory:  \0"))
-      (console-putn con (get-vc-memory con))
-      (console-newline con)
+
+      (when (= (? (+ atags-base 4)) ATAG_CORE)
+	(dump-atags con atags-base))
+
+      (dump-devicetree con atags-base)
+
       (error %error-no-error))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
