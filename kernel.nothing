@@ -559,7 +559,6 @@
 	  (let ((next-p (+ prop-value-base (round-up-to-4-bytes prop-value-size)))
 		(prop-name (+ strings-base prop-name-offset)))
 	    (print-indent con indent)
-	    (console-putc con 64)
 	    (console-puts con prop-name)
 	    (console-puts con (data #" size \0"))
 	    (console-putn con prop-value-size)
@@ -623,15 +622,15 @@
 	(console-putx con strings-base) (console-newline con)
 	(console-putx con memory-map-base) (console-newline con)
 	(dump-dt-children con struct-base strings-base 2)
-	(console-puts con (data #"Done.\0"))
+	(console-puts con (data #"Done printing devicetree.\0"))
 	))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define (print-banner con)
-  (console-puts con (data #"Welcome to MINOS for Raspberry Pi\n\0"))
   (console-puts con
-		(data #"Copyright (C) 2012 Tony Garnock-Jones <tonygarnockjones@gmail.com>\n\0")))
+		(data #"Welcome to MINOS for Raspberry Pi\n"
+		      #"Copyright (C) 2012 Tony Garnock-Jones <tonygarnockjones@gmail.com>\n\0")))
 
 (define (print-memory-info con)
   (console-puts con (data #"ARM memory \0"))
