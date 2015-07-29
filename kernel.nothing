@@ -561,7 +561,7 @@
 	    (print-indent con indent)
 	    (console-putc con 64)
 	    (console-puts con prop-name)
-	    (console-putc con (data #" size \0"))
+	    (console-puts con (data #" size \0"))
 	    (console-putn con prop-value-size)
 	    (console-putc con 32)
 	    (console-putx-block con prop-value-base prop-value-size)
