@@ -25,6 +25,79 @@
 ;;---------------------------------------------------------------------------
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Interrupt table
+
+;; TODO: Limitation on the linker means this routine has to be early
+;; in the image, so that the offset to
+;; sys:exception-handler-undefined-instruction etc isn't too large to
+;; fit in an instruction. See the label-linker instance in
+;; `indirect-immediate` in mach-arm7.rkt. A more flexible linker would
+;; be able to put the needed value in the data quasisegment, like the
+;; non-label branch does.
+(define (configure-interrupt-table)
+  (let ((mutable vec 0))
+    (while (<u vec 8)
+      (! (<< vec 2) #xe59ff018) ;; LDR PC, [PC, #24]
+      (set! vec (+ vec 1))))
+  (! #x20 interrupt:reset)
+  (! #x24 sys:exception-handler-undefined-instruction)
+  (! sys:interrupt-vector-undefined-instruction interrupt:undefined-instruction)
+  (! #x28 sys:exception-handler-swi)
+  (! sys:interrupt-vector-swi interrupt:swi)
+  (! #x2c sys:exception-handler-prefetch-abort)
+  (! sys:interrupt-vector-prefetch-abort interrupt:prefetch-abort)
+  (! #x30 sys:exception-handler-data-abort)
+  (! sys:interrupt-vector-data-abort interrupt:data-abort)
+  (! #x34 interrupt:unused)
+  (! #x38 sys:exception-handler-irq)
+  (! sys:interrupt-vector-irq interrupt:irq)
+  (! #x3c sys:exception-handler-fiq)
+  (! sys:interrupt-vector-fiq interrupt:fiq))
+
+(define (cpu-enable-interrupts)
+  (sys:set-cpsr (binand (sys:get-cpsr) #xffffff3f))) ;; clear I and F bits
+
+(define (cpu-disable-interrupts)
+  (sys:set-cpsr (binor (sys:get-cpsr) #xc0))) ;; set I and F bits
+
+(define (interrupt:reset)
+  (error %error-unexpected-interrupt:reset)
+  0)
+
+(define (interrupt:undefined-instruction)
+  (error %error-unexpected-interrupt:undefined-instruction)
+  0) ;; either 0 or 4 depending on whether to skip the insn or retry it
+
+(define (interrupt:swi)
+  (error %error-unexpected-interrupt:swi)
+  0) ;; will return immediately after the SWI
+
+(define (interrupt:prefetch-abort)
+  (error %error-unexpected-interrupt:prefetch-abort)
+  0) ;; either 0 or 4 depending on whether to skip the insn or retry it
+
+(define (interrupt:data-abort)
+  (error %error-unexpected-interrupt:data-abort)
+  0) ;; either 4 or 8 depending on whether to skip the insn or retry it
+
+(define (interrupt:unused)
+  (error %error-unexpected-interrupt:unused)
+  0)
+
+(define (interrupt:irq)
+  (error %error-unexpected-interrupt:irq)
+  ;; (? (+ vic0 vic-address)) ;; dummy read -- see vic-nonvectored-irq-status
+  ;; (sys:set-spsr (binor (sys:get-spsr) #xc0)) ;; disable interrupts when we return from this handler.
+  ;; ;; ^ we do this because we don't know which interrupt caused us
+  ;; ;; here, so we can't clear the condition and will loop forever.
+  ;; ;; We leave the clearing of the condition to user code.
+  4) ;; not zero! otherwise we end up skipping an instruction
+
+(define (interrupt:fiq)
+  (error %error-unexpected-interrupt:fiq)
+  4) ;; not zero! otherwise we end up skipping an instruction
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (const %error-division-by-zero				#x00000002)
 (const %error-no-error					#x00000007)
@@ -34,6 +107,15 @@
 (const %error-unexpected-mailbox-message		#x00000012)
 
 (const %error-framebuffer-mode-set-failed		#x00000020)
+
+(const %error-unexpected-interrupt:reset			#x00000030)
+(const %error-unexpected-interrupt:undefined-instruction	#x00000031)
+(const %error-unexpected-interrupt:swi				#x00000032)
+(const %error-unexpected-interrupt:prefetch-abort		#x00000033)
+(const %error-unexpected-interrupt:data-abort			#x00000034)
+(const %error-unexpected-interrupt:unused			#x00000035)
+(const %error-unexpected-interrupt:irq				#x00000036)
+(const %error-unexpected-interrupt:fiq				#x00000037)
 
 (const %error-devicetree-bad-node-type			#x00000040)
 
@@ -560,6 +642,7 @@
 
 (define (main always-zero machine-type atags-base)
   (enable-led)
+  (configure-interrupt-table)
   (init-alloc!)
   (let ((fbinfo (initialize-framebuffer)))
     (let ((con (make-console fbinfo)))
@@ -575,6 +658,8 @@
 
       (dump-devicetree con atags-base)
 
+      (cpu-enable-interrupts)
+      (sys:wait-for-interrupt)
       (error %error-no-error))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
