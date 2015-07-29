@@ -20,6 +20,7 @@
 (require (only-in racket/file file->list))
 (require (only-in racket/list make-list append-map))
 (require racket/pretty)
+(require racket/date) ;; for KVer in write-trailer
 
 (require "driver.rkt")
 (require "linker.rkt")
@@ -245,10 +246,42 @@
 		    (pad-to code 4)
 		    blobs-rev))])))
 
+;; Write a Raspberry Pi kernel trailer, to make the loader give us a devicetree.
+(define (write-trailer)
+  ;; Trailer format:
+  ;;  * padded to 4-byte boundary
+  ;;  * empty field to mark the end of the kernel, 8 bytes of zeros
+  ;;  * each field is data, padded to 4-byte boundary
+  ;;             then length, as little-endian 4-byte word; ACTUAL length, not padded length
+  ;;             then key, as 4 bytes of ASCII in left-to-right order, i.e. big-endianish
+  ;;  * the final field in the file must be RPTL = Raspberry Pi Trailer
+  ;; Generally, integers will be little-endian.
+  (define total-trailer-length 0)
+  (define (counting-write bs)
+    (set! total-trailer-length (+ total-trailer-length (bytes-length bs)))
+    (write-bytes bs))
+  (define (write-trailer-field label data)
+    (counting-write data)
+    (counting-write (make-bytes (bitwise-and 3 (- (bytes-length data))) 0))
+    (counting-write (integer->integer-bytes (bytes-length data) 4 #f #f))
+    (counting-write label))
+  (write-trailer-field #"\0\0\0\0" #"")
+  (write-trailer-field #"283x" (integer->integer-bytes 0 4 #f #f))
+  (write-trailer-field #"DDTK" (integer->integer-bytes 0 4 #f #f))
+  (write-trailer-field #"DTOK" (integer->integer-bytes 1 4 #f #f)) ;; 1 = we want devicetree
+  (write-trailer-field #"KVer" (bytes-append #"pi-nothing experimental kernel "
+                                             (string->bytes/latin-1
+                                              (parameterize ((date-display-format 'iso-8601))
+                                                (date->string (current-date) #t)))))
+  (write-trailer-field #"RPTL" (integer->integer-bytes (+ total-trailer-length 8) 4 #f #f)))
+
 (define (compile-and-link filename-base)
   (let ((bs (compile-file (string-append filename-base".nothing"))))
     (with-output-to-file (or (output-file) (string-append filename-base".img"))
-      (lambda () (write-bytes bs))
+      (lambda ()
+        (write-bytes bs)
+        (write-bytes (make-bytes (bitwise-and 3 (- (bytes-length bs))) 0)) ;; pad to multiple-of-four
+        (write-trailer))
       #:exists 'replace)))
 
 (require racket/cmdline)
