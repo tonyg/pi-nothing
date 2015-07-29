@@ -397,6 +397,13 @@
 ;; Coprocessor instructions
 
 ;; 3-bit op1 and op2.
+;; {MCR,MRC} p<n>, <op1>, <rt>, <crn>, <crm> [, <op2>]
+;; n = coprocessor number, e.g. 15 for "p15" in ARM assembly.
+;; op1 = 3-bit opcode 1
+;; rt = destination/source ARM register, e.g. 'r0
+;; crn = coprocessor register n
+;; crm = coprocessor register m; additional source/destination register
+;; op2 = 3-bit opcode 2; if omitted in assembly, supply 0 to machine code.
 (define (*mcr/mrc cc n op1 to-arm? rt crn crm op2)
   (imm32* (bitfield 4 (condition-code-num cc)
 		    4 14
@@ -411,10 +418,14 @@
 
 ;; Set ARM reg from coprocessor reg.
 ;; Note: rt='r15='pc causes the flags to be loaded from the coprocessor.
+;; Example: MRC p15, 0, r0, c1, c0, 0 reads System Control Register (SCTLR) into R0
+;;          and would be produced with (*mrc 'al 15 0 'r0 1 0 0)
 (define (*mrc cc n op1 rt crn crm op2)
   (*mcr/mrc cc n op1 #t rt crn crm op2))
 
 ;; Set coprocessor reg from ARM reg.
+;; Example: MCR p15, 0, r0, c1, c0, 0 writes System Control Register (SCTLR) from R0
+;;          and would be produced with (*mcr 'al 15 0 'r0 1 0 0)
 (define (*mcr cc n op1 rt crn crm op2)
   (*mcr/mrc cc n op1 #f rt crn crm op2))
 
