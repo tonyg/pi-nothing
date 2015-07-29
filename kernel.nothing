@@ -230,21 +230,27 @@
 (const %channel-properties-arm->vc 8)
 (const %channel-properties-vc->arm 9)
 
+(define (mailbox-barrier)
+  ;; TODO: what kinds of memory barriers are needed here and in
+  ;; mailbox-recv? See http://elinux.org/RPi_Framebuffer.
+  0)
+
 (define (mailbox-status)
+  (mailbox-barrier)
   (? (+ %mailbox-base %mailbox-reg-status)))
 
 (define (mailbox-send! mailbox-channel message-pointer)
-  ;; TODO: what kinds of memory barriers are needed here and in
-  ;; mailbox-recv? See http://elinux.org/RPi_Framebuffer.
   (when (>=u mailbox-channel 16) (error %error-bad-mailbox-channel))
   (when (<> (binand message-pointer 15) 0) (error %error-bad-mailbox-pointer))
   (while (<> (binand (mailbox-status) (<< 1 31)) 0))
   (! (+ %mailbox-base %mailbox-reg-write)
-     (binor mailbox-channel message-pointer)))
+     (binor mailbox-channel message-pointer))
+  (mailbox-barrier))
 
 (define (mailbox-recv mailbox-channel)
   (when (>=u mailbox-channel 16) (error %error-bad-mailbox-channel))
   (while (<> (binand (mailbox-status) (<< 1 30)) 0))
+  (mailbox-barrier)
   (let ((pointer-and-channel (? (+ %mailbox-base %mailbox-reg-read))))
     (when (<> (binand pointer-and-channel 15) mailbox-channel)
       (error %error-unexpected-mailbox-message))
