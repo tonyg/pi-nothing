@@ -361,6 +361,158 @@
       fbinfo)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; DMA
+
+;; Registers for talking to the DMA units
+(struct dma ((control/status word)
+	     (control-block-address word)
+	     (transfer-information word)
+	     (source-address word)
+	     (destination-address word)
+	     (transfer-len word)
+	     (stride word)
+	     (next-control-block word)
+	     (debug word)))
+
+;; Control blocks, basically a bunch of parameters in RAM. Pointers to
+;; control blocks are sent to the DMA hardware via the "dma" struct
+;; above.
+(struct dma-control-block ((transfer-information word)
+			   (source-address word)
+			   (destination-address word)
+			   (transfer-len word)
+			   (stride word)
+			   (next-control-block word)
+			   (reserved0 word)
+			   (reserved1 word)))
+
+(const dma0 #x20007000) ;; DMA channel 0 registers. Subsequent
+			;; channels (for DMA0 through DMA14 (not 15))
+			;; start at intervals of #x100, i.e.
+			;; #x20007100 for DMA1, etc. DMA15 does exist,
+			;; but at #x20E05000. (See the BCM2835
+			;; peripherals PDF.)
+
+(const dma-int-status #x20007fe0) ;; All DMA channels interrupt status
+(const dma-enable #x20007ff0) ;; All DMA channels enable register
+
+;; DMA control/status register
+(const DMA_ACTIVE				#x00000001)
+(const DMA_END					#x00000002)
+(const DMA_INT					#x00000004)
+(const DMA_DREQ					#x00000008)
+(const DMA_PAUSED				#x00000010)
+(const DMA_DREQ_STOPS_DMA			#x00000020)
+(const DMA_WAITING_FOR_OUTSTANDING_WRITES	#x00000040)
+(const DMA_ERROR				#x00000100)
+(const DMA_PRIORITY_MASK			#x000F0000) ;; priorities 0-15
+(const DMA_PANIC_PRIORITY_MASK			#x00F00000) ;; priorities 0-15
+(const DMA_WAIT_FOR_OUTSTANDING_WRITES		#x10000000)
+(const DMA_DISDEBUG				#x20000000)
+(const DMA_ABORT				#x40000000)
+(const DMA_RESET				#x80000000)
+
+;; DMA transfer information
+(const DMA_INTEN				#x00000001)
+(const DMA_TDMODE				#x00000002) ;; 2D mode
+;;						#x00000004 ?
+(const DMA_WAIT_RESP				#x00000008)
+(const DMA_DEST_INC				#x00000010)
+(const DMA_DEST_WIDTH				#x00000020)
+(const DMA_DEST_DREQ				#x00000040)
+(const DMA_DEST_IGNORE				#x000080)
+(const DMA_SRC_INC				#x0000100)
+(const DMA_SRC_WIDTH				#x0000200)
+(const DMA_SRC_DREQ				#x0000400)
+(const DMA_SRC_IGNORE				#x0000800)
+(const DMA_BURST_LENGTH_MASK			#x0000F000) ;; burst length 1-16 (!!)
+(const DMA_PERMAP_MASK				#x001F0000) ;; peripheral mapping; 0=unpaced
+(const DMA_WAITS_MASK				#x03E00000) ;; extra wait cycles, 0-31
+(const DMA_NO_WIDE_BURSTS			#x04000000)
+
+;; In 2D mode, split field specifies X and Y dimensions separately
+(const DMA_XLENGTH	#x0000FFFF)
+(const DMA_YLENGTH	#x3FFF0000)
+(const DMA_YLENGTH_SHIFT 16)
+
+;; In 2D mode, source and destination strides specified separately
+(const DMA_S_STRIDE	#x0000FFFF)
+(const DMA_D_STRIDE	#xFFFF0000)
+(const DMA_D_STRIDE_SHIFT 16)
+
+;; DMA debug fields
+(const DMA_READ_LAST_NOT_SET_ERROR	#x00000001)
+(const DMA_FIFO_ERROR			#x00000002)
+(const DMA_READ_ERROR			#x00000004)
+(const DMA_OUTSTANDING_WRITES		#x000000F0)
+(const DMA_ID				#x0000FF00)
+(const DMA_STATE			#x01FF0000)
+(const DMA_VERSION			#x0E000000)
+(const DMA_LITE				#x10000000)
+
+(define (configure-dma)
+  (! dma-enable 1) ;; enable just channel 0
+  )
+
+(define (synchronous-2d-move source target width height source-width target-width)
+  (let ((*saved* (*save-alloc-state*)))
+    (let ((control-block (alloc! (* 8 4))))
+      (! (+ control-block dma-control-block-transfer-information)
+	 (binor DMA_TDMODE
+		DMA_DEST_INC
+		DMA_DEST_WIDTH
+		DMA_SRC_INC
+		DMA_SRC_WIDTH))
+      (! (+ control-block dma-control-block-source-address) (pointer->gpu-pointer source))
+      (! (+ control-block dma-control-block-destination-address) (pointer->gpu-pointer target))
+      (! (+ control-block dma-control-block-transfer-len)
+	 (binor (binand (<< (- height 1) DMA_YLENGTH_SHIFT) DMA_YLENGTH)
+		(binand width DMA_XLENGTH)))
+      (! (+ control-block dma-control-block-stride)
+	 (binor (binand (<< (- target-width width) DMA_D_STRIDE_SHIFT) DMA_D_STRIDE)
+		(binand (- source-width width) DMA_S_STRIDE)))
+      (! (+ control-block dma-control-block-next-control-block) 0)
+      (! (+ control-block dma-control-block-reserved0) 0)
+      (! (+ control-block dma-control-block-reserved1) 0)
+      (sys:clean-data-cache)
+      (sys:data-sync-barrier)
+      (! (+ dma0 dma-control-block-address) (pointer->gpu-pointer control-block))
+      (! (+ dma0 dma-control/status) DMA_ACTIVE)
+      (sys:clean-data-cache)
+      (sys:data-sync-barrier)
+      (while (<> (binand (? (+ dma0 dma-control/status)) DMA_ACTIVE) 0))
+      (! (+ dma0 dma-control/status) (binor DMA_END DMA_INT))) ;; clear flags
+    (*restore-alloc-state* *saved*)))
+
+;; (define (synchronous-2d-fill value target width height target-stride)
+;;   (let ((*saved* (*save-alloc-state*)))
+;;     (let ((source-block (alloc! 4))
+;; 	  (control-block (alloc! (* 8 4))))
+;;       (! source-block value)
+;;       (! (+ control-block dma-control-block-transfer-information)
+;; 	 (binor DMA_TDMODE
+;; 		DMA_DEST_INC))
+;;       (! (+ control-block dma-control-block-source-address) (pointer->gpu-pointer source-block))
+;;       (! (+ control-block dma-control-block-destination-address) (pointer->gpu-pointer target))
+;;       (! (+ control-block dma-control-block-transfer-len)
+;; 	 (binor (binand (<< (- height 1) DMA_YLENGTH_SHIFT) DMA_YLENGTH)
+;; 		(binand width DMA_XLENGTH)))
+;;       (! (+ control-block dma-control-block-stride)
+;; 	 (binand (<< target-stride DMA_D_STRIDE_SHIFT) DMA_D_STRIDE))
+;;       (! (+ control-block dma-control-block-next-control-block) 0)
+;;       (! (+ control-block dma-control-block-reserved0) 0)
+;;       (! (+ control-block dma-control-block-reserved1) 0)
+;;       (sys:clean-data-cache)
+;;       (sys:data-sync-barrier)
+;;       (! (+ dma0 dma-control-block-address) (pointer->gpu-pointer control-block))
+;;       (! (+ dma0 dma-control/status) DMA_ACTIVE)
+;;       (sys:clean-data-cache)
+;;       (sys:data-sync-barrier)
+;;       (while (<> (binand (? (+ dma0 dma-control/status)) DMA_ACTIVE) 0))
+;;       (! (+ dma0 dma-control/status) (binor DMA_END DMA_INT))) ;; clear flags
+;;     (*restore-alloc-state* *saved*)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (struct console ((fbinfo word)
 		 (x word)
@@ -402,14 +554,28 @@
 	(let ((target (framebuffer-pointer fbinfo))
 	      (offset (* (framebuffer-stride fbinfo) (<< 1 %char-height-shift)))
 	      (limit (* (framebuffer-stride fbinfo) (<< 1 %char-height-shift) (- height 1))))
-	  (let ((mutable n 0))
-	    (while (<u n limit)
-	      (! (+ target n) (? (+ target n offset)))
-	      (set! n (+ n 4))))
+	  (synchronous-2d-move (+ target offset)
+			       target
+			       (framebuffer-stride fbinfo)
+			       (- (? (+ fbinfo framebuffer-description-height))
+				  (<< 1 %char-height-shift))
+			       (framebuffer-stride fbinfo)
+			       (framebuffer-stride fbinfo))
+	  ;; (let ((mutable n 0))
+	  ;;   (while (<u n limit)
+	  ;;     (! (+ target n) (? (+ target n offset)))
+	  ;;     (set! n (+ n 4))))
+
+	  ;; (synchronous-2d-fill #x80808080
+	  ;; 		       (+ target offset)
+	  ;; 		       (framebuffer-stride fbinfo)
+	  ;; 		       (<< 1 %char-height-shift)
+	  ;; 		       0)
 	  (let ((mutable n 0))
 	    (while (<u n offset)
 	      (! (+ target limit n) 0)
-	      (set! n (+ n 4))))))
+	      (set! n (+ n 4))))
+	  ))
       (! (+ con console-y) (- height 1)))))
 
 (define (console-puts con p)
