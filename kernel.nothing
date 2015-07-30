@@ -542,7 +542,8 @@
 	     (<< (? (+ con console-x)) %char-width-shift)
 	     (<< (? (+ con console-y)) %char-height-shift)
 	     ch
-	     #x00ffffff)
+	     #x00ffffff
+	     #x000000ff)
   (! (+ con console-x) (+ (? (+ con console-x)) 1))
   (when (= (? (+ con console-x)) (? (+ con console-width)))
     (console-putc con 10)))
@@ -980,7 +981,7 @@
 (const %char-width-shift 3)
 (const %char-height-shift 4)
 
-(define (blit-char fbinfo x y ch color)
+(define (blit-char fbinfo x y ch color bgcolor)
   (let ((stride (framebuffer-stride fbinfo))
 	(pixwidth (framebuffer-pixel-width fbinfo)))
     (let ((mutable p (+ (font0-bitmap) (<< ch %char-height-shift)))
@@ -993,7 +994,7 @@
 		(mutable pixel 0)
 		(row (?byte p)))
 	    (while (<u pixel (<< 1 %char-width-shift))
-	      (! target (if (<> (binand row (<< 1 pixel)) 0) color 0))
+	      (! target (if (<> (binand row (<< 1 pixel)) 0) color bgcolor))
 	      (set! pixel (+ pixel 1))
 	      (set! target (+ target pixwidth)))
 	  (set! p (+ p 1))
