@@ -85,12 +85,10 @@
   0)
 
 (define (interrupt:irq)
-  (error %error-unexpected-interrupt:irq)
-  ;; (? (+ vic0 vic-address)) ;; dummy read -- see vic-nonvectored-irq-status
-  ;; (sys:set-spsr (binor (sys:get-spsr) #xc0)) ;; disable interrupts when we return from this handler.
-  ;; ;; ^ we do this because we don't know which interrupt caused us
-  ;; ;; here, so we can't clear the condition and will loop forever.
-  ;; ;; We leave the clearing of the condition to user code.
+  (sys:set-spsr (binor (sys:get-spsr) #xc0)) ;; disable interrupts when we return from this handler.
+  ;; ^ we do this because we don't know which interrupt caused us
+  ;; here, so we can't clear the condition and will loop forever.
+  ;; We leave the clearing of the condition to user code.
   4) ;; not zero! otherwise we end up skipping an instruction
 
 (define (interrupt:fiq)
@@ -506,6 +504,80 @@
       (dump-atags con (+ base (<< size 2))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; While the RPi has an SP804, it's not quite AMBA-compatible, and the
+;; BCM2835 peripheral documentation recommends to use the "System
+;; Timer" instead. That's what this is.
+;;  - free-running counter runs at 1 MHz
+;;  - memory barriers as usual required whenever we're switching between peripherals
+;;     - apparently sys:data-mem-barrier ?
+;;  - compare0 and compare2 are used by the GPU.
+;;  - compare1 and compare3 are free for use by the CPU.
+
+(struct system-timer ((control/status word)
+		      (counter-low word)
+		      (counter-high word)
+		      (compare0 word)
+		      (compare1 word)
+		      (compare2 word)
+		      (compare3 word)))
+
+(const system-timer-base #x20003000)
+
+(define (current-timer-value)
+  (sys:data-mem-barrier)
+  (? (+ system-timer-base system-timer-counter-low)))
+
+;; Clear previous interrupt, if any
+(define (clear-fired-alarm)
+  (sys:data-mem-barrier)
+  (! (+ system-timer-base system-timer-control/status) (<< 1 3))) ;; use timer ch 3
+
+(define (set-alarm relative-microseconds)
+  (set-alarm-absolute (+ (current-timer-value) relative-microseconds)))
+
+(define (set-alarm-absolute absolute-microseconds)
+  (clear-fired-alarm)
+  (! (+ system-timer-base system-timer-compare3) absolute-microseconds)
+  absolute-microseconds)
+
+(define (check-alarm)
+  (if (<> (binand (? (+ system-timer-base system-timer-control/status)) (<< 1 3)) 0)
+      (begin (clear-fired-alarm) 1)
+      0))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Likewise, the RPi seems to have an unusual interrupt controller.
+
+(struct interrupt-controller ((basic-pending word)
+			      (pending1 word)
+			      (pending2 word)
+			      (fiq-control word)
+			      (enable1 word)
+			      (enable2 word)
+			      (basic-enable word)
+			      (disable1 word)
+			      (disable2 word)
+			      (basic-disable word)))
+
+;; The BCM2835 peripheral docs give only some of these values; the
+;; Xinu people at http://xinu.mscs.mu.edu/BCM2835_Interrupt_Controller
+;; fill in some of the blanks.
+(const IRQ_SYSTEM_TIMER_COMPARE0 0) ;; GPU ONLY
+(const IRQ_SYSTEM_TIMER_COMPARE1 1) ;; OK for CPU
+(const IRQ_SYSTEM_TIMER_COMPARE2 2) ;; GPU ONLY
+(const IRQ_SYSTEM_TIMER_COMPARE3 3) ;; OK for CPU
+(const IRQ_USB 9)
+(const IRQ_PCM_AUDIO 55)
+(const IRQ_UART 57)
+(const IRQ_SDHC 62)
+
+(const interrupt-controller-base #x2000b200)
+
+(define (configure-interrupt-controller)
+  (! (+ interrupt-controller-base interrupt-controller-enable1)
+     (binor (<< 1 IRQ_SYSTEM_TIMER_COMPARE3))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (struct boot-param-header ((magic word)
 			   (totalsize word)
@@ -687,6 +759,7 @@
 (define (main always-zero machine-type atags-base)
   (enable-led)
   (configure-interrupt-table)
+  (configure-interrupt-controller)
   (init-alloc!)
   (let ((fbinfo (initialize-framebuffer)))
     ;; Would like to call configure-mmu-identity-mapping earlier --
@@ -718,8 +791,23 @@
       ;; (or whatever the console last printed)!
       (sys:clean-data-cache)
 
-      (sys:wait-for-interrupt)
-      (error %error-no-error))))
+      (let ((mutable deadline (set-alarm 1000000)))
+	(while (= 0 0)
+	  (sys:wait-for-interrupt)
+	  (let ((awoke-at-time (current-timer-value)))
+	    (console-putx con (? (+ interrupt-controller-base interrupt-controller-basic-pending)))
+	    (console-putc con 32)
+	    (console-putx con (? (+ interrupt-controller-base interrupt-controller-pending1)))
+	    (console-putc con 32)
+	    (console-putx con (? (+ interrupt-controller-base interrupt-controller-pending2)))
+	    (console-putc con 32)
+	    (when (<> (check-alarm) 0)
+	      (console-puts con (data #"The time is \0"))
+	      (console-putn con awoke-at-time)
+	      (console-puts con (data #"; next deadline \0"))
+	      (set! deadline (set-alarm-absolute (+ deadline 1000000)))
+	      (console-putn con deadline)))
+	  (console-newline con))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
