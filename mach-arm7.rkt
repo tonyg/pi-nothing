@@ -145,6 +145,13 @@
 		      (list `(move-word ,r ,m)
 			    `(move-word ,n ,r))))]
 	       [`(,(and op (or 'w+ 'w- 'w* 'wand 'wor 'wxor 'wdiv 'wmod))
+		  ,(? non-reg? target)
+		  ,s1
+		  ,s2)
+		(define r (fresh-reg))
+		(list `(,op ,r ,s1 ,s2)
+		      `(move-word ,target ,r))]
+	       [`(,(and op (or 'w+ 'w- 'w* 'wand 'wor 'wxor 'wdiv 'wmod))
 		  ,target
 		  ,(? non-reg? s1)
 		  ,s2)
@@ -161,16 +168,38 @@
 		(define r (fresh-reg))
 		(list `(move-word ,r ,s2)
 		      `(,op ,target ,s1 ,r))]
-	       [`(w* ,target ,s1 ,(? non-reg? s2))
-		;; ARM multiply instructions only work with two registers as sources.
+	       [`(,(and op (or 'w+ 'w- 'w* 'wand 'wor 'wxor 'wdiv 'wmod))
+                  ,target
+                  ,s1
+                  ,(? non-reg? s2))
 		(define r (fresh-reg))
 		(list `(move-word ,r ,s2)
-		      `(w* ,target ,s1 ,r))]
+		      `(,op ,target ,s1 ,r))]
 	       [`(compare/set ,cmpop ,target ,(? memory-location? n) ,(? memory-location? m))
+		(define rn (fresh-reg))
+		(define rm (fresh-reg))
+		(list `(move-word ,rn ,n)
+                      `(move-word ,rm ,m)
+		      `(compare/set ,cmpop ,target ,rn ,rm))]
+	       [`(compare/jmp ,cmpop ,target ,(? memory-location? n) ,(? memory-location? m))
+		(define rn (fresh-reg))
+		(define rm (fresh-reg))
+		(list `(move-word ,rn ,n)
+                      `(move-word ,rm ,m)
+		      `(compare/jmp ,cmpop ,target ,rn ,rm))]
+	       [`(compare/set ,cmpop ,target ,(? memory-location? n) ,m)
+		(define r (fresh-reg))
+		(list `(move-word ,r ,n)
+		      `(compare/set ,cmpop ,target ,r ,m))]
+	       [`(compare/jmp ,cmpop ,target ,(? memory-location? n) ,m)
+		(define r (fresh-reg))
+		(list `(move-word ,r ,n)
+		      `(compare/jmp ,cmpop ,target ,r ,m))]
+	       [`(compare/set ,cmpop ,target ,n ,(? memory-location? m))
 		(define r (fresh-reg))
 		(list `(move-word ,r ,m)
 		      `(compare/set ,cmpop ,target ,n ,r))]
-	       [`(compare/jmp ,cmpop ,target ,(? memory-location? n) ,(? memory-location? m))
+	       [`(compare/jmp ,cmpop ,target ,n ,(? memory-location? m))
 		(define r (fresh-reg))
 		(list `(move-word ,r ,m)
 		      `(compare/jmp ,cmpop ,target ,n ,r))]
@@ -188,6 +217,10 @@
 		(define r (fresh-reg))
 		(list `(,op ,r ,source ,offset)
 		      `(move-word ,(temporary n) ,r))]
+               [`(,(and op (or 'store-word 'store-byte)) ,(temporary n) ,source)
+                (define r (fresh-reg))
+                (list `(move-word ,r ,(temporary n))
+                      `(,op ,r ,source))]
 	       [`(,(and op (or 'store-word 'store-byte)) ,target ,(temporary n))
 		(define r (fresh-reg))
 		(list `(move-word ,r ,(temporary n))
