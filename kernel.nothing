@@ -667,6 +667,7 @@
     (sys:set-ttbr0 pagetable-base)
     (sys:set-ttbr1 pagetable-base)
     (sys:set-ttbcr 0)
+    ;; N.B. Instruction cache must be disabled at the moment MMU is enabled!
     (sys:set-sctlr (binor (sys:get-sctlr) 1))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -686,17 +687,18 @@
 (define (main always-zero machine-type atags-base)
   (enable-led)
   (configure-interrupt-table)
-  (enable-caches)
   (init-alloc!)
   (let ((fbinfo (initialize-framebuffer)))
     ;; Would like to call configure-mmu-identity-mapping earlier --
-    ;; just after enable-caches -- but can't, because there's some BUG
-    ;; (TODO) that prevents the mailbox from working, so if
-    ;; configure-mmu-identity-mapping is before initialize-framebuffer
-    ;; we crash out with %error-framebuffer-mode-set-failed and
-    ;; argument %error-bad-mailbox-channel. Weird. Presumably the page
-    ;; mapping is wrong somehow?
+    ;; perhaps just after configure-interrupt-table -- but can't,
+    ;; because there's some BUG (TODO) that prevents the mailbox from
+    ;; working, so if configure-mmu-identity-mapping is before
+    ;; initialize-framebuffer we crash out with
+    ;; %error-framebuffer-mode-set-failed and argument #x00000010.
+    ;; Which isn't a documented return value. Weird. Presumably the
+    ;; page mapping is wrong somehow?
     (configure-mmu-identity-mapping)
+    (enable-caches) ;; After MMU enable, to make sure Icache is disabled when enabling MMU
     (let ((con (make-console fbinfo)))
       (print-banner con)
       (print-memory-info con)
@@ -712,12 +714,9 @@
 
       (cpu-enable-interrupts)
 
-      ;; Both L1 **and** L2 clean required: L1 first, flushes to L2;
-      ;; then L2, flushes to RAM. Without these, incomplete rendering
-      ;; of the dumped devicetree (or whatever the console last
-      ;; printed)!
-      (sys:clean-l1-data-cache)
-      (sys:clean-l2-data-cache)
+      ;; Without this, incomplete rendering of the dumped devicetree
+      ;; (or whatever the console last printed)!
+      (sys:clean-data-cache)
 
       (sys:wait-for-interrupt)
       (error %error-no-error))))

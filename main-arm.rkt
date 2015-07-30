@@ -173,8 +173,7 @@
         (define-coprocessor-store 'sys:flush-prefetch-buffer 15 0 7 5 4)
         (define-coprocessor-store 'sys:flush-branch-target-cache 15 0 7 5 6)
         (define-coprocessor-store 'sys:invalidate-data-cache 15 0 7 6 0)
-        (define-coprocessor-store 'sys:clean-l1-data-cache 15 0 7 10 0)
-        (define-coprocessor-store 'sys:clean-l2-data-cache 15 1 7 10 0)
+        (define-coprocessor-store 'sys:clean-data-cache 15 0 7 10 0)
         ;; TODO: ARMv7-specific instruction replaces the next two definitions:
         (define-coprocessor-store 'sys:data-sync-barrier 15 0 7 10 4)
         (define-coprocessor-store 'sys:data-mem-barrier 15 0 7 10 5)

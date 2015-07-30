@@ -536,11 +536,12 @@
     (sys:set-ttbr0 pagetable-base)
     (sys:set-ttbr1 pagetable-base)
     (sys:set-ttbcr 0)
+    ;; N.B. Instruction cache must be disabled at the moment MMU is enabled!
     (sys:set-sctlr (binor (sys:get-sctlr) 1))))
 
 (define (main always-zero machine-type atags-base) ;; Linux kernel startup conventions
-  (enable-caches)
   (configure-mmu-identity-mapping)
+  (enable-caches) ;; After MMU enable, to make sure Icache is disabled when enabling MMU
   (configure-interrupt-table)
   (configure-timer)
   (configure-rtc)
