@@ -867,7 +867,7 @@
 	(console-putx con strings-base) (console-newline con)
 	(console-putx con memory-map-base) (console-newline con)
 	(dump-dt-children con struct-base strings-base 2)
-	(console-puts con (data #"Done printing devicetree.\0"))
+	(console-puts con (data #"Done printing devicetree.\n\0"))
 	))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
