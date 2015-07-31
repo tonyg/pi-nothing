@@ -792,48 +792,45 @@
       (set! ch (?byte p)))
     count))
 
+(define (strcmp p q)
+  (let ((pbyte (?byte p)))
+    (let ((diff (- pbyte (?byte q))))
+      (if (<> diff 0)
+	  diff
+	  (if (= pbyte 0)
+	      0
+	      (strcmp (+ p 1) (+ q 1)))))))
+
 (define (round-up-to-4-bytes n)
   (binand #xfffffffc (+ n 3)))
 
 (define (dump-dt-properties con p strings-base indent)
-  (let ((prop-type (?be p)))
-    (if (<> prop-type OF_DT_PROP)
-	p ;; return address of potential children (or end of node)
-	(let ((prop-value-size (?be (+ p 4)))
-	      (prop-name-offset (?be (+ p 8)))
-	      (prop-value-base (+ p 12)))
-	  (let ((next-p (+ prop-value-base (round-up-to-4-bytes prop-value-size)))
-		(prop-name (+ strings-base prop-name-offset)))
-	    (print-indent con indent)
-	    (console-puts con prop-name)
-	    (console-puts con (data #" size \0"))
-	    (console-putn con prop-value-size)
-	    (console-putc con 32)
-	    (console-putx-block con prop-value-base prop-value-size)
-	    (console-newline con)
-	    (dump-dt-properties con next-p strings-base indent))))))
+  (if (= (devicetree-property? p) 0)
+      p ;; return address of potential children (or end of node)
+      (begin
+	(print-indent con indent)
+	(console-puts con (+ strings-base (devicetree-property-name-offset p)))
+	(console-puts con (data #" size \0"))
+	(console-putn con (devicetree-property-size p))
+	(console-putc con 32)
+	(console-putx-block con (devicetree-property-value p) (devicetree-property-size p))
+	(console-newline con)
+	(dump-dt-properties con (devicetree-property-next p) strings-base indent))))
 
-(define (dump-dt-children con p strings-base indent)
-  (let ((node-type (?be p)))
-    (if (logor (= node-type OF_DT_END_NODE)
-	       (= node-type OF_DT_END))
-	(+ p 4) ;; return address of next (potential) node
-	(if (<> node-type OF_DT_BEGIN_NODE)
-	    (begin (console-puts con (data #"Unexpected devicetree node type \0"))
-		   (console-putx con node-type)
-		   (console-newline con)
-		   (error %error-devicetree-bad-node-type))
-	    (let ((prop-base
-		   (let ((node-name (+ p 4)))
-		     (print-indent con indent)
-		     (console-putc con 34)
-		     (console-puts con node-name)
-		     (console-putc con 34)
-		     (console-newline con)
-		     (+ node-name (round-up-to-4-bytes (+ (strlen node-name) 1))))))
-	      (let ((children-base (dump-dt-properties con prop-base strings-base (+ indent 2))))
-		(let ((next-p (dump-dt-children con children-base strings-base (+ indent 2))))
-		  (dump-dt-children con next-p strings-base indent))))))))
+(define (dump-dt-node con p strings-base indent)
+  (print-indent con indent)
+  (console-putc con 34)
+  (console-puts con (devicetree-node-name p))
+  (console-putc con 34)
+  (console-newline con)
+  (let ((mutable child (dump-dt-properties con
+					   (devicetree-node-first-property p)
+					   strings-base
+					   (+ indent 2))))
+    (while (<> (devicetree-node? child) 0)
+      (set! child (dump-dt-node con child strings-base (+ indent 2))))
+    (+ child 4) ;; skip the OF_DT_END_NODE marker.
+    ))
 
 (define (dump-block-be con p word-count)
   (console-putx con p)
@@ -852,7 +849,6 @@
 (define (dump-devicetree con base)
   (when (= (?be (+ base boot-param-header-magic)) OF_DT_HEADER)
     (let ((totalsize (?be (+ base boot-param-header-totalsize)))
-	  (struct-base (+ base (?be (+ base boot-param-header-off_dt_struct))))
 	  (strings-base (+ base (?be (+ base boot-param-header-off_dt_strings))))
 	  (memory-map-base (+ base (?be (+ base boot-param-header-off_mem_rsvmap))))
 	  (version (?be (+ base boot-param-header-version))))
@@ -861,15 +857,69 @@
       (console-newline con)
       (when (>=u version 16) ;; earlier versions have full paths
 			     ;; instead of node leaf names - we don't
-	;; support the older format
+			     ;; support the older format
 	;; (dump-block-be con struct-base 64 #;(>>u totalsize 2))
-	(console-putx con base) (console-newline con)
-	(console-putx con struct-base) (console-newline con)
-	(console-putx con strings-base) (console-newline con)
 	(console-putx con memory-map-base) (console-newline con)
-	(dump-dt-children con struct-base strings-base 2)
-	(console-puts con (data #"Done printing devicetree.\n\0"))
+	(let ((chosen (devicetree-find-child (devicetree-root-node base) (data #"chosen\0"))))
+	  (when (<> chosen 0)
+	    (let ((bootargs (devicetree-find-property base chosen (data #"bootargs\0"))))
+	      (when (<> bootargs 0)
+		;; NUL-terminated string
+		(console-puts con (devicetree-property-value bootargs))
+		(console-newline con)))))
+	;; (dump-dt-node con (devicetree-root-node base) strings-base 2)
+	;; (console-puts con (data #"Done printing devicetree.\n\0"))
 	))))
+
+(define (devicetree-root-node base)
+  (+ base (?be (+ base boot-param-header-off_dt_struct))))
+
+(define (devicetree-property? p) (if (= (?be p) OF_DT_PROP) 1 0))
+(define (devicetree-property-size p) (?be (+ p 4)))
+(define (devicetree-property-name-offset p) (?be (+ p 8)))
+(define (devicetree-property-value p) (+ p 12))
+(define (devicetree-property-next p) (+ (devicetree-property-value p)
+					(round-up-to-4-bytes (devicetree-property-size p))))
+
+(define (devicetree-end? p) (if (= (?be p) OF_DT_END_NODE) 1 0))
+
+(define (devicetree-node? p) (if (= (?be p) OF_DT_BEGIN_NODE) 1 0))
+(define (devicetree-node-name p) (+ p 4))
+
+(define (devicetree-node-first-property nodep)
+  (when (<> (?be nodep) OF_DT_BEGIN_NODE) (error %error-devicetree-bad-node-type))
+  (let ((node-name (+ nodep 4)))
+    (+ node-name (round-up-to-4-bytes (+ (strlen node-name) 1)))))
+
+(define (devicetree-node-first-child nodep)
+  (let ((mutable p (devicetree-node-first-property nodep)))
+    (while (<> (devicetree-property? p) 0) (set! p (devicetree-property-next p)))
+    p))
+
+(define (devicetree-node-next nodep)
+  (let ((mutable p (devicetree-node-first-child nodep)))
+    (while (<> (devicetree-node? p) 0) (set! p (devicetree-node-next p)))
+    (+ p 4))) ;; skip the OF_DT_END_NODE marker.
+
+(define (devicetree-find-property base nodep propname)
+  (devicetree-find-property1 (+ base (?be (+ base boot-param-header-off_dt_strings)))
+			     (devicetree-node-first-property nodep)
+			     propname))
+
+(define (devicetree-find-property1 strings-base p propname)
+  (cond
+   ((= (devicetree-property? p) 0) 0)
+   ((= (strcmp (+ strings-base (devicetree-property-name-offset p)) propname) 0) p)
+   (else (devicetree-find-property1 strings-base (devicetree-property-next p) propname))))
+
+(define (devicetree-find-child nodep childname)
+  (devicetree-find-child1 (devicetree-node-first-child nodep) childname))
+
+(define (devicetree-find-child1 p childname)
+  (cond
+   ((= (devicetree-node? p) 0) 0)
+   ((= (strcmp (devicetree-node-name p) childname) 0) p)
+   (else (devicetree-find-child1 (devicetree-node-next p) childname))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
