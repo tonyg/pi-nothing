@@ -231,6 +231,7 @@
 (define (mailbox-barrier)
   ;; TODO: what kinds of memory barriers are needed here and in
   ;; mailbox-recv? See http://elinux.org/RPi_Framebuffer.
+  (sys:data-sync-barrier)
   0)
 
 (define (mailbox-status)
