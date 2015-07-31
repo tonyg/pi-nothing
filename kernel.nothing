@@ -874,6 +874,8 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define (enable-caches)
+  (sys:invalidate-unified-cache)
+  (sys:invalidate-tlb)
   ;;                                      .     Instruction caches (bit 12)
   ;;                                       .    Branch prediction (bit 11)
   ;;                                         .  Data caches (bit 2)
