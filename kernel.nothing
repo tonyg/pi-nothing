@@ -231,7 +231,7 @@
 (define (mailbox-barrier)
   ;; TODO: what kinds of memory barriers are needed here and in
   ;; mailbox-recv? See http://elinux.org/RPi_Framebuffer.
-  (sys:data-sync-barrier)
+  (sys:clean-and-invalidate-data-cache)
   0)
 
 (define (mailbox-status)
@@ -926,20 +926,12 @@
 
 (define (main always-zero machine-type atags-base)
   (enable-led)
+  (configure-mmu-identity-mapping)
+  (enable-caches) ;; After MMU enable, to make sure Icache is disabled when enabling MMU
   (configure-interrupt-table)
   (configure-interrupt-controller)
   (init-alloc!)
   (let ((fbinfo (initialize-framebuffer)))
-    ;; Would like to call configure-mmu-identity-mapping earlier --
-    ;; perhaps just after configure-interrupt-table -- but can't,
-    ;; because there's some BUG (TODO) that prevents the mailbox from
-    ;; working, so if configure-mmu-identity-mapping is before
-    ;; initialize-framebuffer we crash out with
-    ;; %error-framebuffer-mode-set-failed and argument #x00000010.
-    ;; Which isn't a documented return value. Weird. Presumably the
-    ;; page mapping is wrong somehow?
-    (configure-mmu-identity-mapping)
-    (enable-caches) ;; After MMU enable, to make sure Icache is disabled when enabling MMU
     (let ((con (make-console fbinfo)))
       (print-banner con)
       (print-memory-info con)
