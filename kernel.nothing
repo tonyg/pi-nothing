@@ -846,6 +846,20 @@
 	  (console-putx con (+ p (<< n 2)))
 	  (console-putc con 58))))))
 
+(define (dump-dt-reserved-memorymap con p)
+  (let ((addr-lo (?be p))
+	(addr-hi (?be (+ p 4)))
+	(size-lo (?be (+ p 8)))
+	(size-hi (?be (+ p 12))))
+    (when (lognot (logand (= size-lo 0) (= size-hi 0)))
+      (console-putx con addr-hi)
+      (console-putx con addr-lo)
+      (console-putc con 32)
+      (console-putx con size-hi)
+      (console-putx con size-lo)
+      (console-newline con)
+      (dump-dt-reserved-memorymap con (+ p 16)))))
+
 (define (dump-devicetree con base)
   (when (= (?be (+ base boot-param-header-magic)) OF_DT_HEADER)
     (let ((totalsize (?be (+ base boot-param-header-totalsize)))
@@ -859,7 +873,7 @@
 			     ;; instead of node leaf names - we don't
 			     ;; support the older format
 	;; (dump-block-be con struct-base 64 #;(>>u totalsize 2))
-	(console-putx con memory-map-base) (console-newline con)
+	(dump-dt-reserved-memorymap con memory-map-base)
 	(let ((chosen (devicetree-find-child (devicetree-root-node base) (data #"chosen\0"))))
 	  (when (<> chosen 0)
 	    (let ((bootargs (devicetree-find-property base chosen (data #"bootargs\0"))))
