@@ -230,7 +230,7 @@
 			   (__udivsi3-code)
                            (system-management-code)
 			   blobs))
-  (pretty-print `(all-blobs ,all-blobs))
+  ;; (pretty-print `(all-blobs ,all-blobs))
   (define-values (linked0 relocs link-map) (link all-blobs (start-addr)))
   (when (not (null? relocs))
     (error 'link-and-emit "Unresolved relocations: ~v" relocs))
