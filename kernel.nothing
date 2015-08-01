@@ -346,8 +346,10 @@
 
 (define (initialize-framebuffer)
   (let ((fbinfo (alloc! sizeof-framebuffer-description))
-	(W 1024)
-	(H 768))
+	(W 1920) (H 1080)
+	;; (W 1024) (H 768)
+	;; (W 640) (H 480)
+	)
     (! (+ fbinfo framebuffer-description-width) W)
     (! (+ fbinfo framebuffer-description-height) H)
     (! (+ fbinfo framebuffer-description-virtual-width) W)
