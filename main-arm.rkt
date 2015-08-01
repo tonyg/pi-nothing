@@ -101,6 +101,7 @@
                       '(r0 r1 r2 r3 r4 r5 r6 r7)
                       '(r0 r1 r2 r3 r4 r5 r6 r7 r8 r9 r10 r11 r12)))
   (list (*push 'al reglist)
+        (*mcr 'al 15 0 'r1 15 12 1) ;; read cycle counter into R1 -- i.e. second arg to handler
         (label-linker vector-address-label
                       4
                       (lambda (delta i)
@@ -180,6 +181,11 @@
         (define-coprocessor-store 'sys:data-mem-barrier                15 0 7 10 5)
         (define-coprocessor-store 'sys:clean-and-invalidate-data-cache 15 0 7 14 0)
         (define-coprocessor-store 'sys:invalidate-tlb                  15 0 8 7 0)
+
+        ;; Raspberry pi only: see ARM1176JZF-S Technical Reference Manual table 3-2
+        (define-coprocessor-fetch 'sys:get-rpi-performance-monitor-control 15 0 15 12 0)
+        (define-coprocessor-store 'sys:set-rpi-performance-monitor-control 15 0 15 12 0)
+        (define-coprocessor-fetch 'sys:get-rpi-cycle-counter               15 0 15 12 1)
 
         (label-anchor 'sys:interrupt-vector-undefined-instruction)
           0 0 0 0 ;; undefined instruction, normal ret returns to just after failing insn

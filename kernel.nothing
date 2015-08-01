@@ -84,7 +84,11 @@
   (error %error-unexpected-interrupt:unused)
   0)
 
-(define (interrupt:irq)
+(define (irq-start-cycle-counter)
+  (data #"\0\0\0\0"))
+
+(define (interrupt:irq dummy cycle-counter)
+  (! (irq-start-cycle-counter) cycle-counter)
   (sys:set-spsr (binor (sys:get-spsr) #xc0)) ;; disable interrupts when we return from this handler.
   ;; ^ we do this because we don't know which interrupt caused us
   ;; here, so we can't clear the condition and will loop forever.
@@ -977,6 +981,16 @@
     (sys:set-sctlr (binor (sys:get-sctlr) 1))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; ARM1176JZF-S specific performance monitor
+
+(define (configure-performance-monitor)
+  (sys:set-rpi-performance-monitor-control
+   (binor (sys:get-rpi-performance-monitor-control)
+	  (<< 1 2) ;; reset cycle counter to 0
+	  (<< 1 0) ;; enable all counters
+	  )))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define (print-banner con)
   (console-puts con
@@ -990,15 +1004,19 @@
   (console-putn con (get-vc-memory con))
   (console-puts con (data #" bytes\n\0")))
 
+(const %tick-interval 1000000)
+
 (define (main always-zero machine-type atags-base)
   (enable-led)
+  (configure-interrupt-table)
   (configure-mmu-identity-mapping)
   (enable-caches) ;; After MMU enable, to make sure Icache is disabled when enabling MMU
-  (configure-interrupt-table)
   (configure-interrupt-controller)
   (init-alloc!)
   (let ((fbinfo (initialize-framebuffer)))
     (let ((con (make-console fbinfo)))
+      (configure-performance-monitor)
+
       (print-banner con)
       (print-memory-info con)
 
@@ -1011,27 +1029,41 @@
 
       (dump-devicetree con atags-base)
 
-      (cpu-enable-interrupts)
-
       ;; Without this, incomplete rendering of the dumped devicetree
       ;; (or whatever the console last printed)!
       (sys:clean-data-cache)
 
-      (let ((mutable deadline (set-alarm 1000000)))
+      (let ((mutable deadline (set-alarm %tick-interval)))
 	(while (= 0 0)
+	  (cpu-enable-interrupts)
 	  (sys:wait-for-interrupt)
-	  (let ((awoke-at-time (current-timer-value)))
+	  (let ((stop (sys:get-rpi-cycle-counter))
+		(awoke-at-time (current-timer-value))
+		(start (? (irq-start-cycle-counter))))
+
+	    (let ((delta (- stop start)))
+	      (console-putc con 35)
+	      (console-putn con start)
+	      (console-putc con 45)
+	      (console-putn con stop)
+	      (console-putc con 45)
+	      (console-putn con delta)
+	      (console-putc con 32)
+	      (console-putn con (sys:get-rpi-cycle-counter))
+	      (console-putc con 32))
+
 	    (console-putx con (? (+ interrupt-controller-base interrupt-controller-basic-pending)))
 	    (console-putc con 32)
 	    (console-putx con (? (+ interrupt-controller-base interrupt-controller-pending1)))
 	    (console-putc con 32)
 	    (console-putx con (? (+ interrupt-controller-base interrupt-controller-pending2)))
 	    (console-putc con 32)
+
 	    (when (<> (check-alarm) 0)
 	      (console-puts con (data #"The time is \0"))
 	      (console-putn con awoke-at-time)
 	      (console-puts con (data #"; next deadline \0"))
-	      (set! deadline (set-alarm-absolute (+ deadline 1000000)))
+	      (set! deadline (set-alarm-absolute (+ deadline %tick-interval)))
 	      (console-putn con deadline)))
 	  (console-newline con))))))
 
