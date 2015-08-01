@@ -1004,6 +1004,11 @@
   (console-putn con (get-vc-memory con))
   (console-puts con (data #" bytes\n\0")))
 
+(define (print-irq-latency con delta)
+  (console-puts con (data #"IRQ latency \0"))
+  (console-putn con delta)
+  (console-puts con (data #" cycles; \0")))
+
 (const %tick-interval 1000000)
 
 (define (main always-zero machine-type atags-base)
@@ -1040,25 +1045,13 @@
 	  (let ((stop (sys:get-rpi-cycle-counter))
 		(awoke-at-time (current-timer-value))
 		(start (? (irq-start-cycle-counter))))
-
-	    (let ((delta (- stop start)))
-	      (console-putc con 35)
-	      (console-putn con start)
-	      (console-putc con 45)
-	      (console-putn con stop)
-	      (console-putc con 45)
-	      (console-putn con delta)
-	      (console-putc con 32)
-	      (console-putn con (sys:get-rpi-cycle-counter))
-	      (console-putc con 32))
-
+	    (print-irq-latency con (- stop start))
 	    (console-putx con (? (+ interrupt-controller-base interrupt-controller-basic-pending)))
 	    (console-putc con 32)
 	    (console-putx con (? (+ interrupt-controller-base interrupt-controller-pending1)))
 	    (console-putc con 32)
 	    (console-putx con (? (+ interrupt-controller-base interrupt-controller-pending2)))
 	    (console-putc con 32)
-
 	    (when (<> (check-alarm) 0)
 	      (console-puts con (data #"The time is \0"))
 	      (console-putn con awoke-at-time)
