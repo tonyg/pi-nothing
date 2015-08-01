@@ -1,6 +1,6 @@
 #lang racket/base
 ;; ELF x86_64 executables (Linux)
-;; Copyright (C) 2013 Tony Garnock-Jones <tonygarnockjones@gmail.com>
+;; Copyright (C) 2013-2015 Tony Garnock-Jones <tonyg@leastfixedpoint.com>
 ;;
 ;; This file is part of pi-nothing.
 ;;
