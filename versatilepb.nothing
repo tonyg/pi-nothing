@@ -16,86 +16,6 @@
 ;; You should have received a copy of the GNU General Public License
 ;; along with pi-nothing. If not, see <http://www.gnu.org/licenses/>.
 
-(struct uart ((dr word)
-	      (rsr-ecr word)
-	      (reserved1 byte 16)
-	      (fr word)
-	      (reserved2 byte 4)
-	      (lpr word)
-	      (ibrd word)
-	      (fbrd word)
-	      (lcr-h word)
-	      (cr word)
-	      (ifls word)
-	      (imsc word)
-	      (raw-interrupt-status word) ;; a.k.a. RIS
-	      (masked-interrupt-status word) ;; a.k.a. MIS
-	      (icr word)
-	      (dmacr word)))
-
-(const uart0 #x101f1000)
-(const uart-flag-rx-fifo-empty #x10)
-(const uart-flag-tx-fifo-full #x20)
-
-;; Tells the UART to signal an interrupt. Still need to enable
-;; interrupts at the VIC and at the CPU.
-(define (uart-enable-interrupt)
-  (let ((old (? (+ uart0 uart-imsc))))
-    (puts (data #"UART-IMSC: \0")) (putx old) (newline)
-    (! (+ uart0 uart-imsc) (binor old (<< 1 4))))) ;; RXIM
-
-(define (uart-interrupt-status)
-  (? (+ uart0 uart-masked-interrupt-status)))
-
-(define (division-by-zero a b)
-  (puts (data #"Division by zero\0"))
-  (debug:halt))
-
-(define (putc ch)
-  (while (<> (binand (? (+ uart0 uart-fr)) uart-flag-tx-fifo-full) 0))
-  (! (+ uart0 uart-dr) ch))
-
-(define (poll-for-char)
-  (if (<> (binand (? (+ uart0 uart-fr)) uart-flag-rx-fifo-empty) 0)
-      -1
-      (? (+ uart0 uart-dr))))
-
-(define (getc)
-  (let ((mutable ch -1))
-    (while (= ch -1)
-      (set! ch (poll-for-char)))
-    ch))
-
-(define (puts p)
-  (let ((ch (?byte p)))
-    (when (<> ch 0)
-      (putc ch)
-      (puts (+ p 1)))))
-
-(define (putn* i)
-  (if (<> i 0)
-      (begin (putn* (/ i 10))
-	     (putc (+ (% i 10) 48)))
-      0))
-
-(define (putn i)
-  (if (<> i 0)
-      (putn* i)
-      (putc 48)))
-
-(define (putx n)
-  (let ((mutable shift 28))
-    (while (>=s shift 0)
-      (let ((digit (binand 15 (>>u n shift))))
-	(putc (+ digit (if (>=u digit 10)
-			   55 ;; 65 - 10
-			   48)))
-	(set! shift (- shift 4))))))
-
-(define (newline)
-  (putc 13)
-  (putc 10))
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Interrupt table
 
@@ -181,6 +101,88 @@
   (puts (data #"interrupt:fiq\n\0"))
   (debug:halt)
   4) ;; not zero! otherwise we end up skipping an instruction
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(struct uart ((dr word)
+	      (rsr-ecr word)
+	      (reserved1 byte 16)
+	      (fr word)
+	      (reserved2 byte 4)
+	      (lpr word)
+	      (ibrd word)
+	      (fbrd word)
+	      (lcr-h word)
+	      (cr word)
+	      (ifls word)
+	      (imsc word)
+	      (raw-interrupt-status word) ;; a.k.a. RIS
+	      (masked-interrupt-status word) ;; a.k.a. MIS
+	      (icr word)
+	      (dmacr word)))
+
+(const uart0 #x101f1000)
+(const uart-flag-rx-fifo-empty #x10)
+(const uart-flag-tx-fifo-full #x20)
+
+;; Tells the UART to signal an interrupt. Still need to enable
+;; interrupts at the VIC and at the CPU.
+(define (uart-enable-interrupt)
+  (let ((old (? (+ uart0 uart-imsc))))
+    (puts (data #"UART-IMSC: \0")) (putx old) (newline)
+    (! (+ uart0 uart-imsc) (binor old (<< 1 4))))) ;; RXIM
+
+(define (uart-interrupt-status)
+  (? (+ uart0 uart-masked-interrupt-status)))
+
+(define (division-by-zero a b)
+  (puts (data #"Division by zero\0"))
+  (debug:halt))
+
+(define (putc ch)
+  (while (<> (binand (? (+ uart0 uart-fr)) uart-flag-tx-fifo-full) 0))
+  (! (+ uart0 uart-dr) ch))
+
+(define (poll-for-char)
+  (if (<> (binand (? (+ uart0 uart-fr)) uart-flag-rx-fifo-empty) 0)
+      -1
+      (? (+ uart0 uart-dr))))
+
+(define (getc)
+  (let ((mutable ch -1))
+    (while (= ch -1)
+      (set! ch (poll-for-char)))
+    ch))
+
+(define (puts p)
+  (let ((ch (?byte p)))
+    (when (<> ch 0)
+      (putc ch)
+      (puts (+ p 1)))))
+
+(define (putn* i)
+  (if (<> i 0)
+      (begin (putn* (/ i 10))
+	     (putc (+ (% i 10) 48)))
+      0))
+
+(define (putn i)
+  (if (<> i 0)
+      (putn* i)
+      (putc 48)))
+
+(define (putx n)
+  (let ((mutable shift 28))
+    (while (>=s shift 0)
+      (let ((digit (binand 15 (>>u n shift))))
+	(putc (+ digit (if (>=u digit 10)
+			   55 ;; 65 - 10
+			   48)))
+	(set! shift (- shift 4))))))
+
+(define (newline)
+  (putc 13)
+  (putc 10))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
