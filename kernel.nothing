@@ -151,27 +151,57 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (const %gpio-base #x20200000)
-(const %gpio-function-select-0 #x0000) ;; GPIO pins 0-9
-(const %gpio-function-select-1 #x0004) ;; GPIO pins 10-19
-(const %gpio-pin-output-clear-0 #x0028) ;; GPIO pins 0-31
-(const %gpio-pin-output-clear-1 #x002c) ;; GPIO pins 32-53
-(const %gpio-pin-output-set-0 #x001c) ;; GPIO pins 0-31
-(const %gpio-pin-output-set-1 #x0020) ;; GPIO pins 32-53
+(const %gpio-function-select-base #x0000) ;; GPIO pins 0-9; subsequent pins at adjacent regs
+(const %gpio-pin-output-set-base #x001c) ;; GPIO pins 0-31; 32-53 in adjacent reg
+(const %gpio-pin-output-clear-base #x0028) ;; GPIO pins 0-31; 32-53 in adjacent reg
+(const %gpio-pull-up/down #x0094)
+(const %gpio-pull-up/down-clock-base #x0098) ;; GPIO pins 0-31; 32-53 in adjacent reg
 
 (const %gpio-pin-control-mask 7) ;; 3 bits
 (const %gpio-pin-control-input 0) ;; pin is an input
 (const %gpio-pin-control-output 1) ;; pin is an output
-;; other values exist
+(const %gpio-pin-control-alternate-function-base 4) ;; add alt fun num to get funs 0-5
+
+(const %gpio-pull-neither 0)
+(const %gpio-pull-down 1)
+(const %gpio-pull-up 2)
+
+(define (gpio-function-select! pin function)
+  (let ((reg (+ %gpio-base %gpio-function-select-base (/ pin 10)))
+	(ofs (* (% pin 10) 3)))
+    (let ((old (? reg)))
+      (! reg (binor (binand old (binnot (<< %gpio-pin-control-mask ofs)))
+		    (<< (binand function %gpio-pin-control-mask) ofs))))))
+
+(define (gpio-set-pin! pin state)
+  (! (+ %gpio-base
+	(if (<> state 0) %gpio-pin-output-set-base %gpio-pin-output-clear-base)
+	(>>u pin 5)) ;; 32 pins per reg
+     (<< 1 (binand pin 31))))
+
+;; pins0 and pins1 are bitmasks with a bit set for each pin to modify
+;; e.g. pins0 should have (1 << 0) set to modify setting for pin 0
+;; pins0 covers pins 0-31, and pins1 covers pins 32-53
+;; value 0 = disable both pull-up and pull-down
+;; value 1 = enable pull down
+;; value 2 = enable pull up
+(define (gpio-pull-control! pins0 pins1 value)
+  (! (+ %gpio-base %gpio-pull-up/down) value)
+  (delay-cycles 150)
+  (when (<> pins0 0) (! (+ %gpio-base %gpio-pull-up/down-clock-base 0) pins0))
+  (when (<> pins1 0) (! (+ %gpio-base %gpio-pull-up/down-clock-base 1) pins1))
+  (delay-cycles 150)
+  (! (+ %gpio-base %gpio-pull-up/down) 0)
+  (when (<> pins0 0) (! (+ %gpio-base %gpio-pull-up/down-clock-base 0) 0))
+  (when (<> pins1 0) (! (+ %gpio-base %gpio-pull-up/down-clock-base 1) 0)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define (enable-led)
-  (let ((reg (+ %gpio-base %gpio-function-select-1))) ;; pin 16.
-    (let ((old (? reg)))
-      (! reg (binor (binand old (<< (binnot %gpio-pin-control-mask) 18))
-		    (<< %gpio-pin-control-output 18))))))
+  (gpio-function-select! 16 %gpio-pin-control-output))
 
 (define (set-led! state)
-  (! (+ %gpio-base (if (<> state 0) %gpio-pin-output-clear-0 %gpio-pin-output-set-0))
-     (<< 1 16)))
+  (gpio-set-pin! 16 (if (<> state 0) 0 1)))
 
 (define (pulse-bits bitfield)
   (if (<> bitfield 0)
@@ -537,10 +567,12 @@
     c))
 
 (define (console-putc con ch)
+  (putc ch)
   (when (= ch 13)
     (! (+ con console-x) 0)
     (return 0))
   (when (= ch 10)
+    (putc 13)
     (! (+ con console-x) 0)
     (! (+ con console-y) (+ (? (+ con console-y)) 1))
     (scroll-if-required con)
@@ -749,7 +781,9 @@
 
 (define (configure-interrupt-controller)
   (! (+ interrupt-controller-base interrupt-controller-enable1)
-     (binor (<< 1 IRQ_SYSTEM_TIMER_COMPARE3))))
+     (binor (<< 1 IRQ_SYSTEM_TIMER_COMPARE3)))
+  (! (+ interrupt-controller-base interrupt-controller-enable2)
+     (binor (<< 1 (- IRQ_UART 32)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -983,6 +1017,147 @@
     (sys:set-sctlr (binor (sys:get-sctlr) 1))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; UART
+
+(struct uart ((dr word)
+	      (rsr-ecr word)
+	      (reserved1 byte 16)
+	      (fr word)
+	      (reserved2 byte 4)
+	      (lpr word)
+	      (ibrd word)
+	      (fbrd word)
+	      (lcr-h word)
+	      (cr word)
+	      (ifls word)
+	      (imsc word)
+	      (raw-interrupt-status word) ;; a.k.a. RIS
+	      (masked-interrupt-status word) ;; a.k.a. MIS
+	      (icr word)
+	      (dmacr word)))
+
+(const uart0 #x20201000)
+(const uart-flag-tx-busy #x08)
+(const uart-flag-rx-fifo-empty #x10)
+(const uart-flag-tx-fifo-full #x20)
+
+(const uart-lcr-h-stick-parity-select #x80)
+(const uart-lcr-h-data-bits-mask #x60)
+(const   uart-lcr-h-8-data-bits #x60)
+(const   uart-lcr-h-7-data-bits #x40)
+(const   uart-lcr-h-6-data-bits #x20)
+(const   uart-lcr-h-5-data-bits #x00)
+(const uart-lcr-h-fifo-enable #x10)
+(const uart-lcr-h-2-stop-bits #x08) ;; absent -> 1 stop bit
+(const uart-lcr-h-even-parity #x04) ;; absent -> odd, if enabled at all
+(const uart-lcr-h-parity-enable #x02)
+(const uart-lcr-h-break #x01) ;; set to force TX low
+
+(define (configure-uart)
+  ;; Based on the teachings of
+  ;;  - https://github.com/xinu-os/xinu/blob/master/device/uart-pl011/uartHwInit.c
+  ;;  - https://github.com/dwelch67/raspberrypi/blob/master/uartx01/uartx01.c
+
+  ;; First, disable the UART entirely.
+  (! (+ uart0 uart-cr) 0)
+
+  ;; Next, ensure that GPIO pins 14 and 15 are configured right.
+  ;;  - They need to have "alternate function 0" selected
+  ;;  - They need to have pull-up/pull-down disabled
+  (gpio-function-select! 14 (+ %gpio-pin-control-alternate-function-base 0))
+  (gpio-function-select! 15 (+ %gpio-pin-control-alternate-function-base 0))
+  (gpio-pull-control! (binor (<< 1 14)
+			     (<< 1 15))
+		      0
+		      %gpio-pull-neither)
+
+  ;; Now wait for the UART to stop being busy, in case it is
+  (while (<> (binand (? (+ uart0 uart-fr)) uart-flag-tx-busy) 0))
+
+  ;; Flush the tx FIFO by marking it as disabled
+  (! (+ uart0 uart-lcr-h) (binand (? (+ uart0 uart-lcr-h)) (binnot uart-lcr-h-fifo-enable)))
+
+  ;; Disable UART interrupts
+  (! (+ uart0 uart-imsc) 0)
+
+  ;; Clear any pending interrupts that might be there
+  (! (+ uart0 uart-icr) #x7f2) ;; clear them all except the "disabled, write as zero" ones
+
+  ;; Set the baud rate divisors, integer and fractional. The base clock is 3MHz.
+  ;; actual divisor D = 3000000.0 / (16 * baudrate) = roughly 1.627604 for 115200 baud
+  ;; integer divisor = trunc(D) = 1 for 115200 baud
+  ;; fractional divisor = trunc(((D - trunc(D)) * 64) + 0.5) = 40, for 115200
+  (! (+ uart0 uart-ibrd) 1)
+  (! (+ uart0 uart-fbrd) 40)
+
+  ;; Set 8N1, and (following xinu) leave the FIFOs off.
+  (! (+ uart0 uart-lcr-h) uart-lcr-h-8-data-bits)
+
+  ;; Enable the UART.
+  (! (+ uart0 uart-cr) #x301) ;; RXE | TXE | UARTEN
+
+  ;; Enable the UART's interrupt.
+  (uart-enable-interrupt))
+
+;; Tells the UART to signal an interrupt. Still need to enable
+;; interrupts at the VIC and at the CPU.
+(define (uart-enable-interrupt)
+  (let ((old (? (+ uart0 uart-imsc))))
+    (puts (data #"UART-IMSC: \0")) (putx old) (newline)
+    (! (+ uart0 uart-imsc) (binor old (<< 1 4))))) ;; RXIM
+
+(define (uart-interrupt-status)
+  (? (+ uart0 uart-masked-interrupt-status)))
+
+(define (putc ch)
+  (while (<> (binand (? (+ uart0 uart-fr)) uart-flag-tx-fifo-full) 0))
+  (! (+ uart0 uart-dr) ch))
+
+(define (uart-char-waiting?)
+  (if (<> (binand (? (+ uart0 uart-fr)) uart-flag-rx-fifo-empty) 0) 0 1))
+
+(define (poll-for-char)
+  (if (<> (uart-char-waiting?) 0)
+      (? (+ uart0 uart-dr))
+      -1))
+
+(define (getc)
+  (let ((mutable ch -1))
+    (while (= ch -1)
+      (set! ch (poll-for-char)))
+    ch))
+
+(define (puts p)
+  (let ((ch (?byte p)))
+    (when (<> ch 0)
+      (putc ch)
+      (puts (+ p 1)))))
+
+(define (putn* i)
+  (if (<> i 0)
+      (begin (putn* (/ i 10))
+	     (putc (+ (% i 10) 48)))
+      0))
+
+(define (putn i)
+  (if (<> i 0)
+      (putn* i)
+      (putc 48)))
+
+(define (putx n)
+  (let ((mutable shift 28))
+    (while (>=s shift 0)
+      (let ((digit (binand 15 (>>u n shift))))
+	(putc (+ digit (if (>=u digit 10)
+			   55 ;; 65 - 10
+			   48)))
+	(set! shift (- shift 4))))))
+
+(define (newline)
+  (putc 13)
+  (putc 10))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; ARM1176JZF-S specific performance monitor
 
 (define (configure-performance-monitor)
@@ -991,6 +1166,10 @@
 	  (<< 1 2) ;; reset cycle counter to 0
 	  (<< 1 0) ;; enable all counters
 	  )))
+
+(define (delay-cycles n)
+  (let ((start (sys:get-rpi-cycle-counter)))
+    (while (<u (- (sys:get-rpi-cycle-counter) start) n))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -1019,10 +1198,14 @@
   (configure-mmu-identity-mapping)
   (enable-caches) ;; After MMU enable, to make sure Icache is disabled when enabling MMU
   (configure-interrupt-controller)
+  (configure-performance-monitor)
+  ;; Must configure UART after setting up the performance monitor,
+  ;; because it uses the cycle counter to accurately pause during GPIO
+  ;; pull-up/pull-down configuration.
+  (configure-uart)
   (init-alloc!)
   (let ((fbinfo (initialize-framebuffer)))
     (let ((con (make-console fbinfo)))
-      (configure-performance-monitor)
 
       (print-banner con)
       (print-memory-info con)
@@ -1047,20 +1230,32 @@
 	  (let ((stop (sys:get-rpi-cycle-counter))
 		(awoke-at-time (current-timer-value))
 		(start (? (irq-start-cycle-counter))))
-	    (print-irq-latency con (- stop start))
-	    (console-putx con (? (+ interrupt-controller-base interrupt-controller-basic-pending)))
-	    (console-putc con 32)
-	    (console-putx con (? (+ interrupt-controller-base interrupt-controller-pending1)))
-	    (console-putc con 32)
-	    (console-putx con (? (+ interrupt-controller-base interrupt-controller-pending2)))
-	    (console-putc con 32)
+	    ;; (console-putx con (? (+ interrupt-controller-base interrupt-controller-basic-pending)))
+	    ;; (console-putc con 32)
+	    ;; (console-putx con (? (+ interrupt-controller-base interrupt-controller-pending1)))
+	    ;; (console-putc con 32)
+	    ;; (console-putx con (? (+ interrupt-controller-base interrupt-controller-pending2)))
+	    ;; (console-putc con 32)
+	    (when (<> (uart-interrupt-status) 0)
+	      (! (+ uart0 uart-icr) (<< 1 4))
+	      (while (<> (uart-char-waiting?) 0)
+		(let ((ch (getc)))
+		  (console-puts con (data #"You typed: \0"))
+		  (console-putc con ch)
+		  (let ((errs (>>u ch 8)))
+		    (when (<> errs 0)
+		      (console-puts con (data #" and there were errors: \0"))
+		      (console-putx con errs)))
+		  (console-newline con))))
 	    (when (<> (check-alarm) 0)
+	      (print-irq-latency con (- stop start))
 	      (console-puts con (data #"The time is \0"))
 	      (console-putn con awoke-at-time)
 	      (console-puts con (data #"; next deadline \0"))
 	      (set! deadline (set-alarm-absolute (+ deadline %tick-interval)))
-	      (console-putn con deadline)))
-	  (console-newline con))))))
+	      (console-putn con deadline)
+	      (console-newline con)))
+	  )))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
