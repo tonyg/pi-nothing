@@ -121,6 +121,9 @@
 
 (const %error-devicetree-bad-node-type			#x00000040)
 
+(const %error-dma-no-free-channels			#x00000050)
+(const %error-dma-channel-double-free			#x00000051)
+
 (define (error code)
   (pulse-bits-forever code))
 
@@ -321,40 +324,48 @@
 (const %property-tag-end #x00000000)
 (const %property-tag-get-arm-memory #x00010005)
 (const %property-tag-get-vc-memory #x00010006)
+(const %property-tag-get-dma-channels #x00060001)
 
-(struct property-memory-info ((base word)
-			      (size word))) ;; in bytes
-
-(define (get-*-memory con tag)
+(define (mailbox-property-get tag response-buffer-size)
   (let ((*saved* (*save-alloc-state*)))
     (let ((buflen (round-up-to-4 (+ sizeof-property-buffer-header
 				    sizeof-property-buffer-tag
-				    8 ;; for response buffer
+				    response-buffer-size
 				    4)))) ;; for end tag
       (let ((buf (alloc! buflen)))
 	(let ((tag-start (+ buf sizeof-property-buffer-header))
 	      (value-start (+ buf sizeof-property-buffer-header sizeof-property-buffer-tag)))
-	(! (+ buf property-buffer-header-size) buflen)
-	(! (+ buf property-buffer-header-opcode) %property-buffer-op-request)
-	(! (+ tag-start property-buffer-tag-id) tag)
-	(! (+ tag-start property-buffer-tag-buffer-size) 8)
-	(! (+ tag-start property-buffer-tag-value-length) 0)
-	(! (+ value-start 8) %property-tag-end)
-	(mailbox-send! %channel-properties-arm->vc buf)
-	(let ((reply (mailbox-recv %channel-properties-arm->vc)))
-	  ;; The reply seems to be the same as the buffer pointer we gave.
-	  (when (<> reply buf)
-	    (console-puts con (data #"(Weird, get-*-memory reply \0"))
-	    (console-putx con reply)
-	    (console-puts con (data #" isn't buf \0"))
-	    (console-putx con buf)
-	    (console-puts con (data #")\n\0"))))
-	(let ((result (? (+ value-start property-memory-info-size))))
+	  (! (+ buf property-buffer-header-size) buflen)
+	  (! (+ buf property-buffer-header-opcode) %property-buffer-op-request)
+	  (! (+ tag-start property-buffer-tag-id) tag)
+	  (! (+ tag-start property-buffer-tag-buffer-size) response-buffer-size)
+	  (! (+ tag-start property-buffer-tag-value-length) 0)
+	  (! (+ value-start response-buffer-size) %property-tag-end)
+	  (mailbox-send! %channel-properties-arm->vc buf)
+	  (let ((reply (mailbox-recv %channel-properties-arm->vc)))
+	    ;; The reply seems to be the same as the buffer pointer we gave.
+	    (when (<> reply buf)
+	      (puts (data #"(Weird, mailbox-property-get reply \0"))
+	      (putx reply)
+	      (puts (data #" isn't buf \0"))
+	      (putx buf)
+	      (puts (data #")\n\0"))))
 	  (*restore-alloc-state* *saved*)
-	  result))))))
+	  value-start))))) ;; N.B. only valid until the next `alloc!`!
 
-(define (get-arm-memory con) (get-*-memory con %property-tag-get-arm-memory))
-(define (get-vc-memory con) (get-*-memory con %property-tag-get-vc-memory))
+(struct property-memory-info ((base word)
+			      (size word))) ;; in bytes
+
+(define (get-*-memory tag)
+  (? (+ (mailbox-property-get tag sizeof-property-memory-info)
+	property-memory-info-size)))
+
+(define (get-arm-memory) (get-*-memory %property-tag-get-arm-memory))
+(define (get-vc-memory) (get-*-memory %property-tag-get-vc-memory))
+
+(define (get-dma-channel-availability-mask)
+  (binand (? (mailbox-property-get %property-tag-get-dma-channels 4))
+	  #x0000ffff))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -496,13 +507,79 @@
 (const DMA_VERSION			#x0E000000)
 (const DMA_LITE				#x10000000)
 
-(define (configure-dma)
-  (! dma-enable 1) ;; enable just channel 0
-  ;; TODO: The mailbox property interface includes a "Get DMA
-  ;; channels" request that lets the ARM interrogate the VC to find
-  ;; out which channels are usable and which are reserved for the VC.
-  ;; https://github.com/raspberrypi/firmware/wiki/Mailbox-property-interface
-  )
+(struct dma-state ((lite-channels word)
+		   (free-full-channel-mask word)
+		   (free-full-channel-count word)
+		   (free-lite-channel-mask word)
+		   (free-lite-channel-count word)))
+
+(define (initialize-dma)
+  (let ((state (alloc! sizeof-dma-state))
+	(initial-availability (get-dma-channel-availability-mask)))
+    (! (+ state dma-state-lite-channels) 0)
+    (! (+ state dma-state-free-full-channel-mask) 0)
+    (! (+ state dma-state-free-full-channel-count) 0)
+    (! (+ state dma-state-free-lite-channel-mask) 0)
+    (! (+ state dma-state-free-lite-channel-count) 0)
+    (let ((mutable n 0))
+      (while (<u n 14) ;; TODO: handle channel 15 properly
+	(let ((mask (<< 1 n)))
+	  (when (<> (binand initial-availability mask) 0)
+	    (when (<> (binand (? (+ dma0 (* #x100 n) dma-debug)) DMA_LITE) 0)
+	      (! (+ state dma-state-lite-channels)
+		 (binor (? (+ state dma-state-lite-channels)) mask)))
+	    (free-dma-channel state n)))
+	(set! n (+ n 1))))
+    (! dma-enable initial-availability) ;; actually enables the DMA channels
+    state))
+
+(define (free-dma-channel dma channel)
+  (let ((mask (<< 1 channel)))
+    (let ((lite? (if (<> (binand (? (+ dma dma-state-lite-channels)) mask) 0) 1 0)))
+      (let ((free-mask-offset (if (<> lite? 0)
+				  dma-state-free-lite-channel-mask
+				  dma-state-free-full-channel-mask))
+	    (free-count-offset (if (<> lite? 0)
+				   dma-state-free-lite-channel-count
+				   dma-state-free-full-channel-count)))
+	(let ((free (? (+ dma free-mask-offset))))
+	  (when (<> (binand free mask) 0) (error %error-dma-channel-double-free))
+	  (! (+ dma free-mask-offset) (binor free mask))
+	  (! (+ dma free-count-offset) (+ (? (+ dma free-count-offset)) 1)))))))
+
+(define (free-dma-channels dma channels count)
+  (when (>u count 0)
+    (free-dma-channel dma (? channels))
+    (free-dma-channels dma (+ channels 4) (- count 1))))
+
+(define (allocate-dma-channel dma lite?)
+  (if (<> lite? 0)
+      (allocate-dma-channel1 dma
+			     dma-state-free-lite-channel-mask
+			     dma-state-free-lite-channel-count)
+      (allocate-dma-channel1 dma
+			     dma-state-free-full-channel-mask
+			     dma-state-free-full-channel-count)))
+
+(define (allocate-dma-channel1 dma free-mask-offset free-count-offset)
+  (let ((old-count (? (+ dma free-count-offset))))
+    (when (= old-count 0) (error %error-dma-no-free-channels))
+    (! (+ dma free-count-offset) (- old-count 1)))
+  (allocate-dma-channel2 dma free-mask-offset (? (+ dma free-mask-offset)) 0))
+
+(define (allocate-dma-channel2 dma free-mask-offset free n)
+  ;; Caller has already ensured that *some* channel is free, hence no termination check here
+  (let ((mask (<< 1 n)))
+    (if (= (binand free mask) 0)
+	(allocate-dma-channel2 dma free-mask-offset free (+ n 1))
+	(begin
+	  (! (+ dma free-mask-offset) (binand free (binnot mask)))
+	  n))))
+
+(define (allocate-dma-channels dma lite? channels count)
+  (when (>u count 0)
+    (! channels (allocate-dma-channel dma lite?))
+    (allocate-dma-channels dma lite? (+ channels 4) (- count 1))))
 
 (define (start-dma channel control-block)
   ;; TODO: handle channel 15
@@ -541,63 +618,113 @@
   (! (+ control-block dma-control-block-reserved0) 0)
   (! (+ control-block dma-control-block-reserved1) 0))
 
-(define (synchronous-2d-move source
+(define (synchronous-2d-transfer dma
+				 fill?
+				 source
+				 target
+				 width ;; bytes
+				 height
+				 source-width ;; bytes
+				 target-width) ;; bytes
+  (let ((*saved* (*save-alloc-state*)))
+    (alloc-align! 5) ;; 5-bit alignment = 32-byte boundary
+    (let ((slices (? (+ dma dma-state-free-full-channel-count))))
+      (let ((cbs (alloc! (* 8 4 slices)))
+	    ;; ^ make sure to allocate the control blocks first, since
+	    ;; they need the 32-byte alignment.
+	    (channels (alloc! (* 4 slices)))
+	    (slicewidth (<< (/ (>>u width 2) slices) 2))) ;; slices should be whole pixels/words wide
+	(allocate-dma-channels dma 0 channels slices)
+	;; (putxs channels slices)
+	;; (newline)
+	(let ((mutable n 0))
+	  (while (<u n (- slices 1))
+	    (fill-control-block (+ cbs (* 8 4 n))
+				(binor DMA_TDMODE
+				       DMA_DEST_INC
+				       DMA_DEST_WIDTH
+				       (if (<> fill? 0) 0 DMA_SRC_INC)
+				       DMA_SRC_WIDTH)
+				(if (<> fill? 0)
+				    source
+				    (+ source (* n slicewidth)))
+				(+ target (* n slicewidth))
+				slicewidth
+				height
+				(if (<> fill? 0) slicewidth source-width)
+				target-width)
+	    (start-dma (? (+ channels (<< n 2))) (+ cbs (* 8 4 n)))
+	    (set! n (+ n 1))))
+	(let ((n (- slices 1)))
+	  (fill-control-block (+ cbs (* 8 4 n))
+			      (binor DMA_TDMODE
+				     DMA_DEST_INC
+				     DMA_DEST_WIDTH
+				     (if (<> fill? 0) 0 DMA_SRC_INC)
+				     DMA_SRC_WIDTH)
+			      (if (<> fill? 0)
+				  source
+				  (+ source (* n slicewidth)))
+			      (+ target (* n slicewidth))
+			      (- width (* n slicewidth))
+			      height
+			      (if (<> fill? 0) slicewidth source-width)
+			      target-width)
+	  (start-dma (? (+ channels (<< n 2))) (+ cbs (* 8 4 n))))
+	(let ((mutable n 0))
+	  (while (<u n slices)
+	    (wait-for-dma-completion (? (+ channels (<< n 2))))
+	    (set! n (+ n 1))))
+	(free-dma-channels dma channels slices)))
+    (*restore-alloc-state* *saved*)))
+
+(define (synchronous-2d-move dma
+			     source
 			     target
 			     width ;; bytes
 			     height
 			     source-width ;; bytes
 			     target-width) ;; bytes
-  (let ((*saved* (*save-alloc-state*)))
-    (alloc-align! 5) ;; 5-bit alignment = 32-byte boundary
-    (let ((control-block (alloc! (* 8 4))))
-      (fill-control-block control-block
-			  (binor DMA_TDMODE DMA_DEST_INC DMA_DEST_WIDTH DMA_SRC_INC DMA_SRC_WIDTH)
-			  source
-			  target
-			  width
-			  height
-			  source-width
-			  target-width)
-      (start-dma 0 control-block)
-      (wait-for-dma-completion 0))
-    (*restore-alloc-state* *saved*)))
+  (synchronous-2d-transfer dma
+			   0
+			   source
+			   target
+			   width
+			   height
+			   source-width
+			   target-width))
 
-(define (synchronous-2d-fill value target width height target-stride)
+(define (synchronous-2d-fill dma
+			     value target width height target-stride)
   (let ((*saved* (*save-alloc-state*)))
-    (alloc-align! 5) ;; 5-bit alignment = 32-byte boundary
-    (let ((control-block (alloc! (* 8 4)))
-	  ;; ^ allocate the control block first here, because it's
-	  ;; important the control block starts at a *32-byte*
-	  ;; (256-bit) aligned address! (and `alloc!` hands out
-	  ;; 16-byte-aligned addresses at the moment)
-	  (source-block (alloc! 16)))
+    (let ((source-block (alloc! 16)))
       (! source-block value)
       (! (+ source-block 4) value)
       (! (+ source-block 8) value)
       (! (+ source-block 12) value)
-      (fill-control-block control-block
-			  (binor DMA_TDMODE DMA_DEST_INC DMA_DEST_WIDTH DMA_SRC_WIDTH)
-			  source-block
-			  target
-			  width
-			  height
-			  width
-			  target-stride)
-      (start-dma 0 control-block)
-      (wait-for-dma-completion 0))
+      (synchronous-2d-transfer dma
+			       1
+			       source-block
+			       target
+			       width
+			       height
+			       -1 ;; not used
+			       target-stride))
     (*restore-alloc-state* *saved*)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (struct console ((fbinfo word)
+		 (dma word)
 		 (x word)
 		 (y word)
 		 (width word)
 		 (height word)))
 
-(define (make-console fbinfo)
+(define (make-console fbinfo dma)
   (let ((c (alloc! sizeof-console)))
     (! (+ c console-fbinfo) fbinfo)
+    (! (+ c console-dma) dma)
     (! (+ c console-x) 0)
     (! (+ c console-y) 0)
     (! (+ c console-width) (>>u (? (+ fbinfo framebuffer-description-width)) %char-width-shift))
@@ -632,13 +759,15 @@
 	(let ((target (framebuffer-pointer fbinfo))
 	      (offset (* (framebuffer-stride fbinfo) (<< 1 %char-height-shift)))
 	      (limit (* (framebuffer-stride fbinfo) (<< 1 %char-height-shift) (- height 1))))
-	  (synchronous-2d-move (+ target offset)
+	  (synchronous-2d-move (? (+ con console-dma))
+			       (+ target offset)
 			       target
 			       (framebuffer-stride fbinfo)
 			       (* (- height 1) (<< 1 %char-height-shift))
 			       (framebuffer-stride fbinfo)
 			       (framebuffer-stride fbinfo))
-	  (synchronous-2d-fill 0
+	  (synchronous-2d-fill (? (+ con console-dma))
+			       0
 	  		       (+ target limit)
 	  		       (framebuffer-stride fbinfo)
 	  		       (<< 1 %char-height-shift)
@@ -951,7 +1080,7 @@
 		;; NUL-terminated string
 		(console-puts con (devicetree-property-value bootargs))
 		(console-newline con)))))
-	;; (dump-dt-node con (devicetree-root-node base) strings-base 2)
+	(dump-dt-node con (devicetree-root-node base) strings-base 2)
 	;; (console-puts con (data #"Done printing devicetree.\n\0"))
 	))))
 
@@ -1211,10 +1340,18 @@
 
 (define (print-memory-info con)
   (console-puts con (data #"ARM memory \0"))
-  (console-putn con (get-arm-memory con))
+  (console-putn con (get-arm-memory))
   (console-puts con (data #" bytes; VC memory \0"))
-  (console-putn con (get-vc-memory con))
+  (console-putn con (get-vc-memory))
   (console-puts con (data #" bytes\n\0")))
+
+(define (print-dma-info con dma)
+  (console-puts con (data #"DMA full channels: \0"))
+  (console-putx con (? (+ dma dma-state-free-full-channel-mask)))
+  (console-newline con)
+  (console-puts con (data #"DMA lite channels: \0"))
+  (console-putx con (? (+ dma dma-state-free-lite-channel-mask)))
+  (console-newline con))
 
 (define (print-irq-latency con delta)
   (console-puts con (data #"IRQ latency \0"))
@@ -1235,11 +1372,13 @@
   ;; pull-up/pull-down configuration.
   (configure-uart)
   (init-alloc!)
-  (let ((fbinfo (initialize-framebuffer)))
-    (let ((con (make-console fbinfo)))
+  (let ((fbinfo (initialize-framebuffer))
+	(dma (initialize-dma)))
+    (let ((con (make-console fbinfo dma)))
 
       (print-banner con)
       (print-memory-info con)
+      (print-dma-info con dma)
 
       (console-puts con (data #"Machine type \0"))
       (console-putn con machine-type)
@@ -1261,7 +1400,8 @@
 	    (fill-y-distance 128))
 	(while (= 0 0)
 	  (let ((start (current-timer-value)))
-	    (synchronous-2d-fill (let ((m (binand n 255)))
+	    (synchronous-2d-fill dma
+				 (let ((m (binand n 255)))
 				   (binor m
 					  (<< m 8)
 					  (<< m 16)))
