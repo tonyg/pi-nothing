@@ -504,6 +504,43 @@
   ;; https://github.com/raspberrypi/firmware/wiki/Mailbox-property-interface
   )
 
+(define (start-dma channel control-block)
+  ;; TODO: handle channel 15
+  (let ((base (+ dma0 (* #x100 channel))))
+    (sys:clean-data-cache)
+    (sys:data-sync-barrier)
+    (! (+ base dma-control-block-address) (pointer->gpu-pointer control-block))
+    (! (+ base dma-control/status) DMA_ACTIVE)))
+
+(define (wait-for-dma-completion channel)
+  ;; TODO: handle channel 15
+  (let ((base (+ dma0 (* #x100 channel))))
+    (sys:clean-data-cache)
+    (sys:data-sync-barrier)
+    (while (<> (binand (? (+ base dma-control/status)) DMA_ACTIVE) 0))
+    (! (+ base dma-control/status) (binor DMA_END DMA_INT)))) ;; clear flags
+
+(define (fill-control-block control-block
+			    mode
+			    source
+			    target
+			    width ;; bytes
+			    height
+			    source-width ;; bytes
+			    target-width) ;; bytes
+  (! (+ control-block dma-control-block-transfer-information) mode)
+  (! (+ control-block dma-control-block-source-address) (pointer->gpu-pointer source))
+  (! (+ control-block dma-control-block-destination-address) (pointer->gpu-pointer target))
+  (! (+ control-block dma-control-block-transfer-len)
+     (binor (binand (<< (- height 1) DMA_YLENGTH_SHIFT) DMA_YLENGTH)
+	    (binand width DMA_XLENGTH)))
+  (! (+ control-block dma-control-block-stride)
+     (binor (binand (<< (- target-width width) DMA_D_STRIDE_SHIFT) DMA_D_STRIDE)
+	    (binand (- source-width width) DMA_S_STRIDE)))
+  (! (+ control-block dma-control-block-next-control-block) 0)
+  (! (+ control-block dma-control-block-reserved0) 0)
+  (! (+ control-block dma-control-block-reserved1) 0))
+
 (define (synchronous-2d-move source
 			     target
 			     width ;; bytes
@@ -513,31 +550,16 @@
   (let ((*saved* (*save-alloc-state*)))
     (alloc-align! 5) ;; 5-bit alignment = 32-byte boundary
     (let ((control-block (alloc! (* 8 4))))
-      (! (+ control-block dma-control-block-transfer-information)
-	 (binor DMA_TDMODE
-		DMA_DEST_INC
-		DMA_DEST_WIDTH
-		DMA_SRC_INC
-		DMA_SRC_WIDTH))
-      (! (+ control-block dma-control-block-source-address) (pointer->gpu-pointer source))
-      (! (+ control-block dma-control-block-destination-address) (pointer->gpu-pointer target))
-      (! (+ control-block dma-control-block-transfer-len)
-	 (binor (binand (<< (- height 1) DMA_YLENGTH_SHIFT) DMA_YLENGTH)
-		(binand width DMA_XLENGTH)))
-      (! (+ control-block dma-control-block-stride)
-	 (binor (binand (<< (- target-width width) DMA_D_STRIDE_SHIFT) DMA_D_STRIDE)
-		(binand (- source-width width) DMA_S_STRIDE)))
-      (! (+ control-block dma-control-block-next-control-block) 0)
-      (! (+ control-block dma-control-block-reserved0) 0)
-      (! (+ control-block dma-control-block-reserved1) 0)
-      (sys:clean-data-cache)
-      (sys:data-sync-barrier)
-      (! (+ dma0 dma-control-block-address) (pointer->gpu-pointer control-block))
-      (! (+ dma0 dma-control/status) DMA_ACTIVE)
-      (sys:clean-data-cache)
-      (sys:data-sync-barrier)
-      (while (<> (binand (? (+ dma0 dma-control/status)) DMA_ACTIVE) 0))
-      (! (+ dma0 dma-control/status) (binor DMA_END DMA_INT))) ;; clear flags
+      (fill-control-block control-block
+			  (binor DMA_TDMODE DMA_DEST_INC DMA_DEST_WIDTH DMA_SRC_INC DMA_SRC_WIDTH)
+			  source
+			  target
+			  width
+			  height
+			  source-width
+			  target-width)
+      (start-dma 0 control-block)
+      (wait-for-dma-completion 0))
     (*restore-alloc-state* *saved*)))
 
 (define (synchronous-2d-fill value target width height target-stride)
@@ -553,29 +575,16 @@
       (! (+ source-block 4) value)
       (! (+ source-block 8) value)
       (! (+ source-block 12) value)
-      (! (+ control-block dma-control-block-transfer-information)
-	 (binor DMA_TDMODE
-		DMA_DEST_INC
-		DMA_DEST_WIDTH
-		DMA_SRC_WIDTH))
-      (! (+ control-block dma-control-block-source-address) (pointer->gpu-pointer source-block))
-      (! (+ control-block dma-control-block-destination-address) (pointer->gpu-pointer target))
-      (! (+ control-block dma-control-block-transfer-len)
-	 (binor (binand (<< (- height 1) DMA_YLENGTH_SHIFT) DMA_YLENGTH)
-		(binand width DMA_XLENGTH)))
-      (! (+ control-block dma-control-block-stride)
-	 (binand (<< (- target-stride width) DMA_D_STRIDE_SHIFT) DMA_D_STRIDE))
-      (! (+ control-block dma-control-block-next-control-block) 0)
-      (! (+ control-block dma-control-block-reserved0) 0)
-      (! (+ control-block dma-control-block-reserved1) 0)
-      (sys:clean-data-cache)
-      (sys:data-sync-barrier)
-      (! (+ dma0 dma-control-block-address) (pointer->gpu-pointer control-block))
-      (! (+ dma0 dma-control/status) DMA_ACTIVE)
-      (sys:clean-data-cache)
-      (sys:data-sync-barrier)
-      (while (<> (binand (? (+ dma0 dma-control/status)) DMA_ACTIVE) 0))
-      (! (+ dma0 dma-control/status) (binor DMA_END DMA_INT))) ;; clear flags
+      (fill-control-block control-block
+			  (binor DMA_TDMODE DMA_DEST_INC DMA_DEST_WIDTH DMA_SRC_WIDTH)
+			  source-block
+			  target
+			  width
+			  height
+			  width
+			  target-stride)
+      (start-dma 0 control-block)
+      (wait-for-dma-completion 0))
     (*restore-alloc-state* *saved*)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
