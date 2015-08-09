@@ -1313,6 +1313,12 @@
 			   48)))
 	(set! shift (- shift 4))))))
 
+(define (putxs ns count)
+  (when (>u count 0)
+    (putc 32)
+    (putx (? ns))
+    (putxs (+ ns 4) (- count 1))))
+
 (define (newline)
   (putc 13)
   (putc 10))
