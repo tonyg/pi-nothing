@@ -628,7 +628,9 @@
 				 target-width) ;; bytes
   (let ((*saved* (*save-alloc-state*)))
     (alloc-align! 5) ;; 5-bit alignment = 32-byte boundary
-    (let ((slices (? (+ dma dma-state-free-full-channel-count))))
+    (let ((slices (if (<u width 16)
+		      1 ;; don't bother slicing narrow transfers
+		      (? (+ dma dma-state-free-full-channel-count)))))
       (let ((cbs (alloc! (* 8 4 slices)))
 	    ;; ^ make sure to allocate the control blocks first, since
 	    ;; they need the 32-byte alignment.
