@@ -175,6 +175,14 @@
 		(define r (fresh-reg))
 		(list `(move-word ,r ,s2)
 		      `(,op ,target ,s1 ,r))]
+	       [`(wshift ,op ,(? non-reg? target) ,s1 ,s2)
+		(define r (fresh-reg))
+                (list `(wshift ,op ,r ,s1 ,s2)
+                      `(move-word ,target ,r))]
+	       [`(wshift ,op ,target ,(? non-reg? s1) ,s2)
+		(define r (fresh-reg))
+                (list `(move-word ,r ,s1)
+                      `(wshift ,op ,target ,r ,s2))]
 	       [`(compare/set ,cmpop ,target ,(? memory-location? n) ,(? memory-location? m))
 		(define rn (fresh-reg))
 		(define rm (fresh-reg))
@@ -217,6 +225,10 @@
 		(define r (fresh-reg))
 		(list `(,op ,r ,source ,offset)
 		      `(move-word ,(temporary n) ,r))]
+	       [`(,(and op (or 'load-word 'load-byte)) ,target ,(temporary n) ,offset)
+		(define r (fresh-reg))
+                (list `(move-word ,r ,(temporary n))
+                      `(,op ,target ,r ,offset))]
                [`(,(and op (or 'store-word 'store-byte)) ,(temporary n) ,source)
                 (define r (fresh-reg))
                 (list `(move-word ,r ,(temporary n))
