@@ -384,6 +384,7 @@
 	(W 1920) (H 1080)
 	;; (W 1024) (H 768)
 	;; (W 640) (H 480)
+	;; (W 320) (H 240)
 	)
     (! (+ fbinfo framebuffer-description-width) W)
     (! (+ fbinfo framebuffer-description-height) H)
@@ -401,6 +402,9 @@
       (! (+ fbinfo framebuffer-description-pointer)
 	 (gpu-pointer->pointer (? (+ fbinfo framebuffer-description-pointer))))
       fbinfo)))
+
+;; TODO: Use the mailbox property interface to set the cursor sprite?
+;; https://github.com/raspberrypi/firmware/wiki/Mailbox-property-interface
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; DMA
@@ -494,6 +498,10 @@
 
 (define (configure-dma)
   (! dma-enable 1) ;; enable just channel 0
+  ;; TODO: The mailbox property interface includes a "Get DMA
+  ;; channels" request that lets the ARM interrogate the VC to find
+  ;; out which channels are usable and which are reserved for the VC.
+  ;; https://github.com/raspberrypi/firmware/wiki/Mailbox-property-interface
   )
 
 (define (synchronous-2d-move source
@@ -749,6 +757,8 @@
   (sys:data-mem-barrier)
   (! (+ system-timer-base system-timer-control/status) (<< 1 3))) ;; use timer ch 3
 
+;; TODO: Use "Clocks" mailbox property interface to read the base
+;; clock value dynamically. We're assuming it's 1 MHz here.
 (define (set-alarm relative-microseconds)
   (set-alarm-absolute (+ (current-timer-value) relative-microseconds)))
 
@@ -1095,6 +1105,7 @@
   (! (+ uart0 uart-icr) #x7f2) ;; clear them all except the "disabled, write as zero" ones
 
   ;; Set the baud rate divisors, integer and fractional. The base clock is 3MHz.
+  ;; TODO: Use "Clocks" mailbox property interface to read the UART base clock value dynamically.
   ;; actual divisor D = 3000000.0 / (16 * baudrate) = roughly 1.627604 for 115200 baud
   ;; integer divisor = trunc(D) = 1 for 115200 baud
   ;; fractional divisor = trunc(((D - trunc(D)) * 64) + 0.5) = 40, for 115200
