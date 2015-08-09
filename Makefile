@@ -15,6 +15,15 @@ EXAMPLES=\
 
 all: disassemblers compiled $(KERNEL).img
 
+raspbootin:
+	git submodule update --init
+
+raspbootin/raspbootcom/raspbootcom: raspbootin
+	$(MAKE) -C raspbootin/raspbootcom
+
+boot: all raspbootin/raspbootcom/raspbootcom
+	raspbootin/raspbootcom/raspbootcom /dev/ttyUSB0 kernel.img
+
 disassemblers: udcli disarm/disarm-0.11
 
 udcli: $(UDIS).tar.gz

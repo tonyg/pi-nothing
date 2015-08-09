@@ -1,0 +1,3 @@
+[submodule "raspbootin"]
+	path = raspbootin
+	url = git@github.com:tonyg/raspbootin
