@@ -1291,6 +1291,12 @@
       (let ((mutable deadline (set-alarm %tick-interval)))
 	(while (= 0 0)
 	  (cpu-enable-interrupts)
+	  ;; TODO: Properly handle missed timer deadlines and clock
+	  ;; rollover. Currently, if we're busy while a deadline
+	  ;; expires, there's risk of setting the next deadline for a
+	  ;; time that has already passed. In that case, the interrupt
+	  ;; will never fire, since timer matching is done by counter
+	  ;; equality, not counter-less-than.
 	  (sys:wait-for-interrupt)
 	  (let ((stop (sys:get-rpi-cycle-counter))
 		(awoke-at-time (current-timer-value))
