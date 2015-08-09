@@ -530,7 +530,7 @@
 		 (binor (? (+ state dma-state-lite-channels)) mask)))
 	    (free-dma-channel state n)))
 	(set! n (+ n 1))))
-    (! dma-enable initial-availability) ;; actually enables the DMA channels
+    (! dma-enable (binor (? dma-enable) initial-availability)) ;; actually enables the DMA channels
     state))
 
 (define (free-dma-channel dma channel)
