@@ -15,10 +15,8 @@ EXAMPLES=\
 
 all: disassemblers compiled $(KERNEL).img
 
-raspbootin:
+raspbootin/raspbootcom/raspbootcom:
 	git submodule update --init
-
-raspbootin/raspbootcom/raspbootcom: raspbootin
 	$(MAKE) -C raspbootin/raspbootcom
 
 boot: all raspbootin/raspbootcom/raspbootcom
