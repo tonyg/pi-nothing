@@ -48,4 +48,4 @@
 (define (disassemble-udcli mode x len base show-binary)
   (with-input-from-bytes (subbytes x 0 len)
     (lambda ()
-      (system (format "./udcli -o ~x ~a~a" base mode (if show-binary "" " -nohex"))))))
+      (system (format "./udcli -o ~x ~a~a" base mode (if show-binary " -oct" " -nohex"))))))
