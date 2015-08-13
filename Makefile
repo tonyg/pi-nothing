@@ -26,6 +26,7 @@ disassemblers: udcli disarm/disarm-0.11
 
 udcli: $(UDIS).tar.gz
 	tar -zxvf $<
+	(cd $(UDIS); patch -p1 < ../udis-octal.patch)
 	(cd $(UDIS); ./configure --disable-shared --prefix=`pwd`/dist && make && make install)
 	cp $(UDIS)/dist/bin/udcli .
 	rm -rf $(UDIS)
