@@ -111,8 +111,6 @@
     [`(compare/jmp ,_ ,target ,s1 ,s2)	(values #f (set) (set s1 s2 target))]
 
     [`(use ,source)			(values #f (set) (set source))]
-    [`(prepare-call ,_ ,_)		(values #f (set) (set))]
-    [`(cleanup-call ,_ ,_)		(values #f (set) (set))]
 
     [(? label?)				(values #f (set) (set))]
     [`(jmp ,target)			(values #f (set) (set target))]
