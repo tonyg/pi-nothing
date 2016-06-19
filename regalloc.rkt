@@ -66,6 +66,9 @@
 ;; register! In general, there may be many possibilities, so perhaps
 ;; produce them all, rank them, select one and then update the
 ;; remaining availability?
+;;
+;; See hack (?) below where we override a found decision if found-reg
+;; is a memory-location but the current register is not.
 (define (find-available-register availability requirement-interval good-candidates)
   (match availability
     ['() (values #f availability)]
@@ -80,7 +83,9 @@
 	       (return-this-one)
 	       (let-values (((found-reg remaining-availability)
 			     (find-available-register rest requirement-interval good-candidates)))
-		 (if found-reg
+		 (if (and found-reg
+                          ;; v See TODO note above
+                          (not (and (memory-location? found-reg) (not (memory-location? reg)))))
 		     (values found-reg (cons (cons reg available-interval) remaining-availability))
 		     (return-this-one)))))
 	 (let-values (((found-reg remaining-availability)
