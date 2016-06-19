@@ -48,11 +48,7 @@
 	 non-reg?
 
 	 def-use
-	 instr-fold
-	 instr-fold-rev
 
-	 iterate-to-fixpoint
-	 local-labels
 	 forward-control-transfer-edges
 
 	 compute-live-intervals
@@ -92,31 +88,31 @@
 
 (define (def-use* instr)
   (match instr
-    [`(move-word ,target ,source)	(values #t (set target) (set source))]
-    [`(load-word ,target ,source ,_)	(values #t (set target) (set source))]
-    [`(load-byte ,target ,source ,_)	(values #t (set target) (set source))]
-    [`(store-word ,target ,source)	(values #f (set) (set target source))]
-    [`(store-byte ,target ,source)	(values #f (set) (set target source))]
-    [`(w+ ,target ,s1 ,s2)		(values #t (set target) (set s1 s2))]
-    [`(w- ,target ,s1 ,s2)		(values #t (set target) (set s1 s2))]
-    [`(w* ,target ,s1 ,s2)		(values #t (set target) (set s1 s2))]
-    [`(wand ,target ,s1 ,s2)		(values #t (set target) (set s1 s2))]
-    [`(wor ,target ,s1 ,s2)		(values #t (set target) (set s1 s2))]
-    [`(wxor ,target ,s1 ,s2)		(values #t (set target) (set s1 s2))]
-    [`(wnot ,target ,source)		(values #t (set target) (set source))]
-    [`(wdiv ,target ,s1 ,s2)		(values #t (set target) (set s1 s2))]
-    [`(wmod ,target ,s1 ,s2)		(values #t (set target) (set s1 s2))]
-    [`(wshift ,_ ,target ,s1 ,s2)	(values #t (set target) (set s1 s2))]
-    [`(compare/set ,_ ,target ,s1 ,s2)	(values #t (set target) (set s1 s2))]
-    [`(compare/jmp ,_ ,target ,s1 ,s2)	(values #f (set) (set s1 s2 target))]
+    [`(move-word ,target ,source)	(values #t (list target) (list source))]
+    [`(load-word ,target ,source ,_)	(values #t (list target) (list source))]
+    [`(load-byte ,target ,source ,_)	(values #t (list target) (list source))]
+    [`(store-word ,target ,source)	(values #f (list) (list target source))]
+    [`(store-byte ,target ,source)	(values #f (list) (list target source))]
+    [`(w+ ,target ,s1 ,s2)		(values #t (list target) (list s1 s2))]
+    [`(w- ,target ,s1 ,s2)		(values #t (list target) (list s1 s2))]
+    [`(w* ,target ,s1 ,s2)		(values #t (list target) (list s1 s2))]
+    [`(wand ,target ,s1 ,s2)		(values #t (list target) (list s1 s2))]
+    [`(wor ,target ,s1 ,s2)		(values #t (list target) (list s1 s2))]
+    [`(wxor ,target ,s1 ,s2)		(values #t (list target) (list s1 s2))]
+    [`(wnot ,target ,source)		(values #t (list target) (list source))]
+    [`(wdiv ,target ,s1 ,s2)		(values #t (list target) (list s1 s2))]
+    [`(wmod ,target ,s1 ,s2)		(values #t (list target) (list s1 s2))]
+    [`(wshift ,_ ,target ,s1 ,s2)	(values #t (list target) (list s1 s2))]
+    [`(compare/set ,_ ,target ,s1 ,s2)	(values #t (list target) (list s1 s2))]
+    [`(compare/jmp ,_ ,target ,s1 ,s2)	(values #f (list) (list s1 s2 target))]
 
-    [`(use ,source)			(values #f (set) (set source))]
+    [`(use ,source)			(values #f (list) (list source))]
 
-    [(? label?)				(values #f (set) (set))]
-    [`(jmp ,target)			(values #f (set) (set target))]
-    [`(ret ,r)				(values #f (set) (set r))]
+    [(? label?)				(values #f (list) (list))]
+    [`(jmp ,target)			(values #f (list) (list target))]
+    [`(ret ,r)				(values #f (list) (list r))]
     [`(,(or 'call 'tailcall) ,target ,label (,arg ...))
-     (values #f (set target) (set-add (list->set arg) label))]))
+     (values #f (list target) (cons label arg))]))
 
 (define (def-use instr)
   (define-values (killable defs uses) (def-use* instr))
@@ -130,82 +126,104 @@
 ;; as live *during* instructions. Live intervals [a,b] are closed
 ;; intervals.
 
-(define (instr-fold f seed instrs)
-  (let loop ((counter 0)
-	     (instrs instrs)
-	     (seed seed))
-    (if (null? instrs)
-	seed
-	(loop (+ counter 1) (cdr instrs) (f counter (car instrs) seed)))))
-
-(define (instr-fold-rev f seed instrs)
-  (define max-pos (length instrs))
-  (instr-fold (lambda (counter instr seed) (f (- max-pos counter 1) instr seed))
-	      seed
-	      (reverse instrs)))
-
-(define (iterate-to-fixpoint f . seeds)
-  (define next-seeds (call-with-values (lambda () (apply f seeds)) list))
-  (if (equal? next-seeds seeds) (apply values seeds) (apply iterate-to-fixpoint f next-seeds)))
-
 (define (local-labels instrs)
-  (instr-fold (lambda (counter instr locs) (if (label? instr) (hash-set locs instr counter) locs))
-	      (hash)
-	      instrs))
+  (for/hash [(counter (in-naturals))
+             (instr (in-list instrs))
+             #:when (label? instr)]
+    (values instr counter)))
 
 (define (forward-control-transfer-edges instrs)
   (define labels (local-labels instrs))
-  (define (add-edge edges dest-instr source-instr)
-    (if dest-instr
-	(hash-set edges source-instr (cons dest-instr (hash-ref edges source-instr '())))
-	edges))
-  (instr-fold (lambda (counter instr edges)
-		(match instr
-		  [`(compare/jmp ,_ ,target ,_ ,_)
-					(add-edge (add-edge edges (+ counter 1) counter)
-						  (hash-ref labels target #f)
-						  counter)]
-		  [`(jmp ,target)	(add-edge edges (hash-ref labels target #f) counter)]
-		  [`(ret ,_)		edges]
-		  [_			(add-edge edges (+ counter 1) counter)]))
-	      (hash)
-	      instrs))
+  (for/fold [(edges (hash))]
+            [(counter (in-naturals)) (instr (in-list instrs))]
+    (define dest-instrs
+      (match instr
+        [`(compare/jmp ,_ ,target ,_ ,_)  (list (hash-ref labels target #f) (+ counter 1))]
+        [`(jmp ,target)                   (list (hash-ref labels target #f))]
+        [`(ret ,_)                        (list)]
+        [_                                #f]))
+    (if dest-instrs
+        (hash-set edges counter (filter values dest-instrs))
+        edges)))
 
 (define (raw-live-ranges instrs)
+  (define max-pos (length instrs))
   (define edges (forward-control-transfer-edges instrs))
-  (define (target-instructions pos) (hash-ref edges pos '()))
-  (define (live-out in pos) (apply set-union
-				   (set) ;; to pick the type of set
-					 ;; we're interested in in the
-					 ;; 0-arg case!
-				   (map (lambda (dest) (hash-ref in dest set))
-					(target-instructions pos))))
-  (define (propagate-liveness in)
-    (instr-fold-rev (lambda (counter instr in)
-		      (define-values (killable defs uses) (def-use instr))
-		      ;; (write `(,counter ,instr ::: ,killable ,defs ,uses)) (newline)
-		      (hash-set in counter (set-union (set-subtract (live-out in counter) defs)
-						      uses)))
-		    in
-		    instrs))
-  (define (in->out in)
-    (do ((counter (- (length instrs) 1) (- counter 1))
-	 (acc (hash) (hash-set acc counter (live-out in counter))))
-	((< counter 0) acc)))
-  (in->out (iterate-to-fixpoint propagate-liveness (hash))))
+  (define in (make-vector max-pos (set)))
+  (define (target-instructions pos) (hash-ref edges pos (lambda () (if (< pos max-pos)
+                                                                       (list (+ pos 1))
+                                                                       '()))))
+  (define (live-out pos) (apply set-union
+                                (set) ;; to pick the type of set
+                                ;; we're interested in in the
+                                ;; 0-arg case!
+                                (map (lambda (dest) (vector-ref in dest))
+                                     (target-instructions pos))))
+  (define (propagate-liveness)
+    (for/fold [(changed? #f)]
+              [(counter-rev (in-naturals)) (instr (in-list (reverse instrs)))]
+      (define counter (- max-pos counter-rev 1))
+      (define-values (killable defs uses) (def-use instr))
+      (define old-set (vector-ref in counter))
+      (define new-set (set-union (set-subtract (live-out counter) defs) uses))
+      (vector-set! in counter new-set)
+      (or changed? (not (equal? old-set new-set)))))
+  (let loop () (when (propagate-liveness) (loop)))
+  (for/hash [(counter (in-range max-pos))]
+    (values counter (live-out counter))))
+
+;; (define (raw-live-ranges instrs)
+;;   (define max-pos (length instrs))
+;;   (define edges (forward-control-transfer-edges instrs))
+;;   (define (target-instructions pos) (hash-ref edges pos (lambda () (if (< pos max-pos)
+;;                                                                        (list (+ pos 1))
+;;                                                                        '()))))
+;;   (define (live-out in pos) (apply set-union
+;; 				   (set) ;; to pick the type of set
+;; 					 ;; we're interested in in the
+;; 					 ;; 0-arg case!
+;; 				   (map (lambda (dest) (hash-ref in dest set))
+;; 					(target-instructions pos))))
+;;   (define (propagate-liveness in)
+;;     (for/fold [(in in)]
+;;               [(counter-rev (in-naturals)) (instr (in-list (reverse instrs)))]
+;;       (define counter (- max-pos counter-rev 1))
+;;       (define-values (killable defs uses) (def-use instr))
+;;       (hash-set in counter (set-union (set-subtract (live-out in counter) defs) uses))))
+;;   (define (in->out in)
+;;     (for/hash [(counter (in-range max-pos))]
+;;       (values counter (live-out in counter))))
+;;   (define (iterate-to-fixpoint f . seeds)
+;;     (define next-seeds (call-with-values (lambda () (apply f seeds)) list))
+;;     (if (equal? next-seeds seeds) (apply values seeds) (apply iterate-to-fixpoint f next-seeds)))
+;;   (in->out (iterate-to-fixpoint propagate-liveness (hash))))
 
 (define (extract-live-ranges instrs raw-live-map)
-  (instr-fold (lambda (counter instr live-map)
-		(foldl (lambda (reg live-map)
-			 (hash-update live-map
-				      reg
-				      (lambda (old)
-					(interval-union (singleton-interval counter) old))
-				      empty-interval))
-		       live-map
-		       (set->list (hash-ref raw-live-map counter set))))
-	      (hash)
-	      instrs))
+  ;; Optimized to avoid hash-update and interval-union where one
+  ;; argument is singleton-interval.
+  (define rs
+    (for/fold [(live-map (hash))]
+              [(counter (in-range (length instrs)))]
+      (for/fold [(live-map live-map)]
+                [(reg (in-set (hash-ref raw-live-map counter set)))]
+        (hash-set live-map
+                  reg
+                  (match (hash-ref live-map reg '())
+                    [(list* stop rest) #:when (= stop counter) (list* (+ counter 1) rest)]
+                    [ts (list* (+ counter 1) counter ts)])))))
+  (for/hash [((r ts) (in-hash rs))]
+    (values r (raw-toggles->interval (reverse ts)))))
+
+;; (define (extract-live-ranges instrs raw-live-map)
+;;   (for/fold [(live-map (hash))]
+;;             [(counter (in-range (length instrs)))]
+;;     (for/fold [(live-map live-map)]
+;;               [(reg (in-set (hash-ref raw-live-map counter set)))]
+;;       (hash-update live-map
+;;                    reg
+;;                    (lambda (old)
+;;                      (interval-union (singleton-interval counter) old))
+;;                    empty-interval))))
 
 (define (print-raw-live-map instrs raw-live-map)
   (local-require (only-in srfi/13 string-pad string-pad-right))

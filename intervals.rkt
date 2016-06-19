@@ -27,6 +27,7 @@
 	 singleton-interval ;; the original supported strings too
 	 range-interval
 	 list->interval
+         raw-toggles->interval
 	 interval->list
 	 interval->list*
 	 interval-min
@@ -68,6 +69,9 @@
       ['() acc]
       [(cons (cons lo hi) rest) (loop (interval-union (range-interval lo hi) acc) rest)]
       [_ (error 'list->interval "Ill-formed range list: ~v" ranges)])))
+
+(define (raw-toggles->interval ts [initial #f])
+  (interval initial ts))
 
 (define (nonfinite proc i)
   (error proc "Can only handle finite intervals: ~v" i))
