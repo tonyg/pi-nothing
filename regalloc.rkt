@@ -27,17 +27,19 @@
 
 (provide allocate-registers)
 
-(define (general-subst x mapping)
-  (let walk ((x x))
+(define (instrs-subst x mapping)
+  (define (walk x)
     (if (hash-has-key? mapping x)
 	(hash-ref mapping x)
 	(match x
 	  [(cons a d) (cons (walk a) (walk d))]
 	  [(? struct? x)
 	   (define key (prefab-struct-key x))
-	   (when (not key) (error 'general-subst "Cannot substitute through ~v" x))
+	   (when (not key) (error 'instrs-subst "Cannot substitute through ~v" x))
 	   (apply make-prefab-struct key (map walk (cdr (vector->list (struct->vector x)))))]
-	  [_ x]))))
+	  [_ x])))
+  (define (walk-instr i) (if (pair? i) (map walk i) (walk i)))
+  (map walk-instr x))
 
 (define (dead-instr? instr live-map)
   (define-values (killable defs uses) (def-use instr))
@@ -206,9 +208,9 @@
       (allocate-registers-once prev-temp-count prev-instrs starting-reg-availability))
     (define new-temps-only
       (make-hash (filter (lambda (e) (temporary? (cdr e))) (hash->list mapping))))
-    (define mapped-instrs (general-subst remaining-instrs new-temps-only))
+    (define mapped-instrs (instrs-subst remaining-instrs new-temps-only))
     (define new-instrs (expand-temporary-loads-and-stores md mapped-instrs))
     (if (and (= new-temp-count prev-temp-count)
 	     (equal? prev-instrs new-instrs))
-	(values new-temp-count (general-subst new-instrs mapping))
+	(values new-temp-count (instrs-subst new-instrs mapping))
 	(loop new-temp-count new-instrs))))
