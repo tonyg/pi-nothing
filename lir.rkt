@@ -49,8 +49,6 @@
 
 	 def-use
 
-	 forward-control-transfer-edges
-
 	 compute-live-intervals
 
 	 evaluate-cmpop32
@@ -126,16 +124,16 @@
 ;; as live *during* instructions. Live intervals [a,b] are closed
 ;; intervals.
 
-(define (local-labels instrs)
+(define (local-labels instrs-vec)
   (for/hash [(counter (in-naturals))
-             (instr (in-list instrs))
+             (instr (in-vector instrs-vec))
              #:when (label? instr)]
     (values instr counter)))
 
-(define (forward-control-transfer-edges instrs)
-  (define labels (local-labels instrs))
+(define (forward-control-transfer-edges instrs-vec)
+  (define labels (local-labels instrs-vec))
   (for/fold [(edges (hash))]
-            [(counter (in-naturals)) (instr (in-list instrs))]
+            [(counter (in-naturals)) (instr (in-vector instrs-vec))]
     (define dest-instrs
       (match instr
         [`(compare/jmp ,_ ,target ,_ ,_)  (list (hash-ref labels target #f) (+ counter 1))]
@@ -147,8 +145,9 @@
         edges)))
 
 (define (raw-live-ranges instrs)
-  (define max-pos (length instrs))
-  (define edges (forward-control-transfer-edges instrs))
+  (define instrs-vec (list->vector instrs))
+  (define max-pos (vector-length instrs-vec))
+  (define edges (forward-control-transfer-edges instrs-vec))
   (define in (make-vector max-pos (set)))
   (define (target-instructions pos) (hash-ref edges pos (lambda () (if (< pos max-pos)
                                                                        (list (+ pos 1))
@@ -160,17 +159,17 @@
                                 (map (lambda (dest) (vector-ref in dest))
                                      (target-instructions pos))))
   (define (propagate-liveness)
-    (for/fold [(changed? #f)]
-              [(counter-rev (in-naturals)) (instr (in-list (reverse instrs)))]
+    (for/fold [(changed? #f)] [(counter-rev (in-range max-pos))]
       (define counter (- max-pos counter-rev 1))
+      (define instr (vector-ref instrs-vec counter))
       (define-values (killable defs uses) (def-use instr))
       (define old-set (vector-ref in counter))
       (define new-set (set-union (set-subtract (live-out counter) defs) uses))
       (vector-set! in counter new-set)
       (or changed? (not (equal? old-set new-set)))))
   (let loop () (when (propagate-liveness) (loop)))
-  (for/hash [(counter (in-range max-pos))]
-    (values counter (live-out counter))))
+  (for/vector [(counter (in-range max-pos))]
+    (live-out counter)))
 
 ;; (define (raw-live-ranges instrs)
 ;;   (define max-pos (length instrs))
@@ -205,7 +204,7 @@
     (for/fold [(live-map (hash))]
               [(counter (in-range (length instrs)))]
       (for/fold [(live-map live-map)]
-                [(reg (in-set (hash-ref raw-live-map counter set)))]
+                [(reg (in-set (vector-ref raw-live-map counter)))]
         (hash-set live-map
                   reg
                   (match (hash-ref live-map reg '())
@@ -233,7 +232,7 @@
             (string-pad (number->string k) 5)
             (string-pad-right (format "~a" instr) 54))
     (define reg-strings
-      (for/list [(r (in-set (hash-ref raw-live-map k)))]
+      (for/list [(r (in-set (vector-ref raw-live-map k)))]
         (match r
           [(reg s) (symbol->string s)]
           [(preg s) (symbol->string s)]
