@@ -118,19 +118,32 @@
 	 availability
 	 (filter preg? (hash-keys live-ranges))))
 
+(define (print-availability context availability)
+  (printf "(availability ~a\n" context)
+  (for [(entry (in-list availability))]
+    (printf "  ~a -> ~a\n" (car entry)
+            (for/list [(p (interval->list* (cdr entry)))]
+              (format "~a-~a" (car p) (cdr p)))))
+  (printf ")\n")
+  availability)
+
 ;; Some kind of hybrid linear-scan/binpacking algorithm, after Poletto
 ;; & Sarkar 1999 and Traub, Holloway & Smith 1998. Also influenced by
 ;; ideas from Christian Wimmer's 2004 Master's Thesis, "Linear Scan
 ;; Register Allocation for the Java HotSpot Client Compiler".
 (define (allocate-registers-once starting-temp-count instrs initial-availability)
+  ;; (print-availability 'initial initial-availability)
   (define live-ranges (compute-live-intervals instrs))
+  (define initial-availability/live-ranges
+    (reserve-fixed-registers initial-availability live-ranges))
+  ;; (print-availability 'initial-availability/live-ranges initial-availability/live-ranges)
   (define instrs-vec (list->vector instrs))
   (let loop ((temp-count starting-temp-count)
 	     (ranges (sort (filter (lambda (x) (reg? (car x))) (hash->list live-ranges))
 			   <
 			   #:key (lambda (e) (interval-min (cdr e)))))
 	     (mapping (hash))
-	     (availability (reserve-fixed-registers initial-availability live-ranges)))
+	     (availability initial-availability/live-ranges))
     (match ranges
       ['()
        ;;(pretty-print `(mapping ,mapping))
@@ -145,11 +158,12 @@
 									instrs-vec
 									live-interval
 									mapping))))
-	 ;; (pretty-print `((found-reg ,found-reg)
+	 ;; (pretty-print `((found-reg ,found-reg for ,temp-reg live-interval ,live-interval)
 	 ;; 		 (temp-count ,temp-count)
-	 ;; 		 (ranges ,ranges)
-	 ;; 		 (mapping ,mapping)
-	 ;; 		 (availability ,availability)))
+	 ;; 		 ;; (ranges ,ranges)
+	 ;; 		 ;; (mapping ,mapping)
+         ;;                 ))
+         ;; (print-availability `(found-reg ,found-reg for ,temp-reg) availability)
 	 (cond
 	  [found-reg
 	   (loop temp-count
