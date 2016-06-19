@@ -130,20 +130,6 @@
              #:when (label? instr)]
     (values instr counter)))
 
-(define (forward-control-transfer-edges instrs-vec)
-  (define labels (local-labels instrs-vec))
-  (for/fold [(edges (hash))]
-            [(counter (in-naturals)) (instr (in-vector instrs-vec))]
-    (define dest-instrs
-      (match instr
-        [`(compare/jmp ,_ ,target ,_ ,_)  (list (hash-ref labels target #f) (+ counter 1))]
-        [`(jmp ,target)                   (list (hash-ref labels target #f))]
-        [`(ret ,_)                        (list)]
-        [_                                #f]))
-    (if dest-instrs
-        (hash-set edges counter (filter values dest-instrs))
-        edges)))
-
 (define (all-defs-and-uses instrs-vec)
   (define defs (make-vector (vector-length instrs-vec)))
   (define uses (make-vector (vector-length instrs-vec)))
@@ -156,18 +142,22 @@
 (define (raw-live-ranges instrs)
   (define instrs-vec (list->vector instrs))
   (define-values (defs uses) (all-defs-and-uses instrs-vec))
-  (define edges (forward-control-transfer-edges instrs-vec))
+
   (define max-pos (vector-length instrs-vec))
   (define in (make-vector max-pos (set)))
-  (define (target-instructions pos) (hash-ref edges pos (lambda () (if (< pos max-pos)
-                                                                       (list (+ pos 1))
-                                                                       '()))))
-  (define (live-out pos) (apply set-union
-                                (set) ;; to pick the type of set
-                                ;; we're interested in in the
-                                ;; 0-arg case!
-                                (map (lambda (dest) (vector-ref in dest))
-                                     (target-instructions pos))))
+
+  (define labels (local-labels instrs-vec))
+  (define (live-at-label label)
+    (define pos (hash-ref labels label #f))
+    (if pos (vector-ref in pos) (set)))
+
+  (define (live-out pos)
+    (match (vector-ref instrs-vec pos)
+      [`(compare/jmp ,_ ,target ,_ ,_) (set-union (live-at-label target) (vector-ref in (+ pos 1)))]
+      [`(jmp ,target)                  (live-at-label target)]
+      [`(ret ,_)                       (set)]
+      [_                               (vector-ref in (+ pos 1))]))
+
   (define (propagate-liveness)
     (for/fold [(changed? #f)] [(counter-rev (in-range max-pos))]
       (define counter (- max-pos counter-rev 1))
