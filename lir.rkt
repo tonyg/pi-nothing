@@ -207,11 +207,29 @@
 	      (hash)
 	      instrs))
 
+(define (print-raw-live-map instrs raw-live-map)
+  (local-require (only-in srfi/13 string-pad string-pad-right))
+  (printf "(raw-live-map\n")
+  (for [(k (in-naturals)) (instr (in-list instrs))]
+    (printf "~a ~a "
+            (string-pad (number->string k) 5)
+            (string-pad-right (format "~a" instr) 54))
+    (define reg-strings
+      (for/list [(r (in-set (hash-ref raw-live-map k)))]
+        (match r
+          [(reg s) (symbol->string s)]
+          [(preg s) (symbol->string s)]
+          [(temporary n) (format "t~a" n)]
+          [(inward-arg n) (format "i~a" n)]
+          [(outward-arg _ _ n) (format "o~a" n)]
+          [other (format "~a" other)])))
+    (display (sort reg-strings string<?))
+    (newline))
+  (printf ")\n"))
+
 (define (compute-live-intervals instrs)
   (define raw-live-map (raw-live-ranges instrs))
-  ;; (for ([k (in-range (length instrs))])
-  ;;   (write `(,k = ,(list-ref instrs k) -> ,(hash-ref raw-live-map k)))
-  ;;   (newline))
+  ;; (print-raw-live-map instrs raw-live-map)
   (define live-ranges (extract-live-ranges instrs raw-live-map))
   ;; (local-require racket/pretty)
   ;; (pretty-print `(live-ranges ,live-ranges))
