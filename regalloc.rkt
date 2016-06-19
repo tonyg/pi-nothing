@@ -44,8 +44,7 @@
 (define (dead-instr? instr live-map)
   (define-values (killable defs uses) (def-use instr))
   (and killable
-       (andmap (lambda (r) (not (hash-has-key? live-map r)))
-	       (set->list defs))))
+       (andmap (lambda (r) (not (hash-has-key? live-map r))) defs)))
 
 (define (omit-dead-instrs instrs live-ranges)
   (filter (lambda (i) (not (dead-instr? i live-ranges))) instrs))

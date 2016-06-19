@@ -115,8 +115,8 @@
 (define (def-use instr)
   (define-values (killable defs uses) (def-use* instr))
   (values killable
-	  (for/set [(d defs) #:when (location? d)] d)
-	  (for/set [(u uses) #:when (location? u)] u)))
+	  (for/list [(d defs) #:when (location? d)] d)
+	  (for/list [(u uses) #:when (location? u)] u)))
 
 ;; Instructions are numbered sequentially starting from zero.
 ;; Registers are technically live on the edges *between* instructions,
@@ -144,10 +144,20 @@
         (hash-set edges counter (filter values dest-instrs))
         edges)))
 
+(define (all-defs-and-uses instrs-vec)
+  (define defs (make-vector (vector-length instrs-vec)))
+  (define uses (make-vector (vector-length instrs-vec)))
+  (for [(counter (in-naturals)) (instr (in-vector instrs-vec))]
+    (define-values (_k ds us) (def-use instr))
+    (vector-set! defs counter ds)
+    (vector-set! uses counter us))
+  (values defs uses))
+
 (define (raw-live-ranges instrs)
   (define instrs-vec (list->vector instrs))
-  (define max-pos (vector-length instrs-vec))
+  (define-values (defs uses) (all-defs-and-uses instrs-vec))
   (define edges (forward-control-transfer-edges instrs-vec))
+  (define max-pos (vector-length instrs-vec))
   (define in (make-vector max-pos (set)))
   (define (target-instructions pos) (hash-ref edges pos (lambda () (if (< pos max-pos)
                                                                        (list (+ pos 1))
@@ -162,9 +172,13 @@
     (for/fold [(changed? #f)] [(counter-rev (in-range max-pos))]
       (define counter (- max-pos counter-rev 1))
       (define instr (vector-ref instrs-vec counter))
-      (define-values (killable defs uses) (def-use instr))
       (define old-set (vector-ref in counter))
-      (define new-set (set-union (set-subtract (live-out counter) defs) uses))
+      ;; Avoid set-union and set-subtract; the generic dispatch overhead is large
+      (define new-set (for/fold [(s (for/fold [(s (live-out counter))]
+                                              [(d (in-list (vector-ref defs counter)))]
+                                      (set-remove s d)))]
+                                [(u (in-list (vector-ref uses counter)))]
+                        (set-add s u)))
       (vector-set! in counter new-set)
       (or changed? (not (equal? old-set new-set)))))
   (let loop () (when (propagate-liveness) (loop)))
