@@ -28,6 +28,7 @@
 	 range-interval
 	 list->interval
 	 interval->list
+	 interval->list*
 	 interval-min
 	 interval-max
 	 foldl-interval
@@ -79,6 +80,18 @@
       ['() (reverse acc)]
       [(list* lo hi rest) (loop (cons (cons lo hi) acc) rest)]
       [(list _) (nonfinite 'interval->list i)])))
+
+(define (interval->list* i
+                         #:negative-infinity [negative-infinity #f]
+                         #:positive-infinity [positive-infinity #f])
+  (let loop ((acc '())
+	     (remaining (if (interval-initial i)
+                            (cons negative-infinity (interval-toggles i))
+                            (interval-toggles i))))
+    (match remaining
+      ['() (reverse acc)]
+      [(list* lo hi rest) (loop (cons (cons lo hi) acc) rest)]
+      [(list lo) (loop (cons (cons lo positive-infinity) acc) '())])))
 
 ;; Returns lowest value in the interval
 (define (interval-min i)
