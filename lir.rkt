@@ -171,32 +171,6 @@
   (for/vector [(counter (in-range max-pos))]
     (live-out counter)))
 
-;; (define (raw-live-ranges instrs)
-;;   (define max-pos (length instrs))
-;;   (define edges (forward-control-transfer-edges instrs))
-;;   (define (target-instructions pos) (hash-ref edges pos (lambda () (if (< pos max-pos)
-;;                                                                        (list (+ pos 1))
-;;                                                                        '()))))
-;;   (define (live-out in pos) (apply set-union
-;; 				   (set) ;; to pick the type of set
-;; 					 ;; we're interested in in the
-;; 					 ;; 0-arg case!
-;; 				   (map (lambda (dest) (hash-ref in dest set))
-;; 					(target-instructions pos))))
-;;   (define (propagate-liveness in)
-;;     (for/fold [(in in)]
-;;               [(counter-rev (in-naturals)) (instr (in-list (reverse instrs)))]
-;;       (define counter (- max-pos counter-rev 1))
-;;       (define-values (killable defs uses) (def-use instr))
-;;       (hash-set in counter (set-union (set-subtract (live-out in counter) defs) uses))))
-;;   (define (in->out in)
-;;     (for/hash [(counter (in-range max-pos))]
-;;       (values counter (live-out in counter))))
-;;   (define (iterate-to-fixpoint f . seeds)
-;;     (define next-seeds (call-with-values (lambda () (apply f seeds)) list))
-;;     (if (equal? next-seeds seeds) (apply values seeds) (apply iterate-to-fixpoint f next-seeds)))
-;;   (in->out (iterate-to-fixpoint propagate-liveness (hash))))
-
 (define (extract-live-ranges instrs raw-live-map)
   ;; Optimized to avoid hash-update and interval-union where one
   ;; argument is singleton-interval.
@@ -212,17 +186,6 @@
                     [ts (list* (+ counter 1) counter ts)])))))
   (for/hash [((r ts) (in-hash rs))]
     (values r (raw-toggles->interval (reverse ts)))))
-
-;; (define (extract-live-ranges instrs raw-live-map)
-;;   (for/fold [(live-map (hash))]
-;;             [(counter (in-range (length instrs)))]
-;;     (for/fold [(live-map live-map)]
-;;               [(reg (in-set (hash-ref raw-live-map counter set)))]
-;;       (hash-update live-map
-;;                    reg
-;;                    (lambda (old)
-;;                      (interval-union (singleton-interval counter) old))
-;;                    empty-interval))))
 
 (define (print-raw-live-map instrs raw-live-map)
   (local-require (only-in srfi/13 string-pad string-pad-right))
