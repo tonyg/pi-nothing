@@ -224,7 +224,8 @@
 	    link-map)
   (disassemble-bytes! linked
   		      #:arch (machine-description-architecture md)
-  		      #:base start-addr)
+  		      #:base start-addr
+                      #:link-map link-map)
   linked)
 
 (define (pad-to bs multiple)
