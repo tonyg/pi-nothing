@@ -94,9 +94,12 @@
 		  )
 		 (list))
 	     (list `(,op ,(preg 'r0) ,label ,(map mkarg (iota argcount))))
-	     (map (lambda (name) `(move-word ,(preg name) ,(junk))) killed-regs)
-	     (map (lambda (name) `(use ,(preg name))) killed-regs)
-	     (list `(move-word ,target ,(preg 'r0))))]
+             (if (eq? calltype 'tail)
+                 (list)
+                 (append
+                  (map (lambda (name) `(move-word ,(preg name) ,(junk))) killed-regs)
+                  (map (lambda (name) `(use ,(preg name))) killed-regs)
+                  (list `(move-word ,target ,(preg 'r0))))))]
     [`(,(and op (or 'store-word 'store-byte)) ,target ,source)
      (define rt (if (non-reg? target) (fresh-reg) target))
      (define rs (if (non-reg? source) (fresh-reg) source))
