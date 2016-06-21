@@ -98,7 +98,7 @@
        (lambda ()
          (with-input-from-bytes (subbytes x 0 len)
            (lambda ()
-             (system (format "./udcli -o ~x ~a~a" base mode (if show-binary " -oct" " -nohex")))))))
+             (system (format "./udcli -o ~x ~a~a" base mode (if show-binary "" " -nohex")))))))
      "\n"))
   (for [(line (in-list lines))]
     (define addr (string->number (substring line 0 16) 16))
