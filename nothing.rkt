@@ -233,7 +233,7 @@
 			   bi
 			   (list Ldone))
 		   bd
-		   dest))]
+                   (lit 0)))]
 
     [`(if ,test ,texp ,fexp)
      (define Ltrue (fresh-label))
