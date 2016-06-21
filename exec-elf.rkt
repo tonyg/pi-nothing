@@ -211,6 +211,9 @@
         (label-anchor '%%ostype)
         (*mov 'al 0 'r0 0)
         (*mov 'al 0 'pc 'lr)
+        (label-anchor '%%wordsize)
+        (*mov 'al 0 'r0 32)
+        (*mov 'al 0 'pc 'lr)
         ;; System call table: http://syscalls.kernelgrok.com/
         (make-syscall '%%write 3 0 ;; r0=fd, r1=ptr, r2=length
                       (lambda (R A)
@@ -262,6 +265,9 @@
 	(*call (label-reference '%%exit))
 	(label-anchor '%%ostype)
 	(*mov 0 'rax)
+	(*ret)
+	(label-anchor '%%wordsize)
+	(*mov 64 'rax)
 	(*ret)
         ;; System call table: http://blog.rchapman.org/post/36801038863/linux-system-call-table-for-x86-64
         (make-syscall '%%write ;; RDI=fd, RSI=ptr, RDX=length
