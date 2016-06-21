@@ -156,7 +156,7 @@
       [`(compare/jmp ,_ ,target ,_ ,_) (set-union (live-at-label target) (vector-ref in (+ pos 1)))]
       [`(jmp ,target)                  (live-at-label target)]
       [`(ret ,_)                       (set)]
-      [`(tailcall ,_ ,_)            (set)]
+      [`(tailcall ,_ ,_)               (set)]
       [_                               (vector-ref in (+ pos 1))]))
 
   (define (propagate-liveness)
