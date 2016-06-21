@@ -1,7 +1,7 @@
 ;; -*- mode: scheme -*-
 
-(define (newline)
-  (%%write 1 (data #"\n") 1))
+(define (newline fd)
+  (%%write fd (data #"\n") 1))
 
 (define (strlen p)
   (let ((mutable p p)
@@ -13,13 +13,13 @@
       (set! ch (?byte p)))
     count))
 
-(define (puts s)
-  (%%write 1 s (strlen s)))
+(define (puts fd s)
+  (%%write fd s (strlen s)))
 
-(define (putc c)
+(define (putc fd c)
   (let ((buf (data #" ")))
     (!byte buf c)
-    (%%write 1 buf 1)))
+    (%%write fd buf 1)))
 
 (define (putrgb buf stride x y r g b)
   (let ((i (* 3 (+ x (* y stride)))))
@@ -27,20 +27,20 @@
     (!byte (+ buf (+ i 1)) g)
     (!byte (+ buf (+ i 2)) b)))
 
-(define (putn n)
+(define (putn fd n)
   (cond
-   [(= n 0) (putc #x30)]
+   [(= n 0) (putc fd #x30)]
    [(<s n 0)
-    (putc #x2d)
-    (putn1 (- 0 n))]
+    (putc fd #x2d)
+    (putn1 fd (- 0 n))]
    [else
-    (putn1 n)]))
+    (putn1 fd n)]))
 
-(define (putn1 n)
+(define (putn1 fd n)
   (if (= n 0)
       0
-      (begin (putn1 (/ n 10))
-	     (putc (+ (% n 10) #x30)))))
+      (begin (putn1 fd (/ n 10))
+	     (putc fd (+ (% n 10) #x30)))))
 
 (define (int->fix i)
   (<< i 16))
@@ -90,13 +90,13 @@
 	  0))
 
 (define (pnm-header width height)
-  (puts (data #"P6 \0"))
-  (putn width)
-  (putc 32)
-  (putn height)
-  (putc 32)
-  (putn 255)
-  (putc 10))
+  (puts 1 (data #"P6 \0"))
+  (putn 1 width)
+  (putc 1 32)
+  (putn 1 height)
+  (putc 1 32)
+  (putn 1 255)
+  (putc 1 10))
 
 (define (main)
   (let ((width 1024)
@@ -106,9 +106,9 @@
 	  (dx (/ (int->fix 4) width))
 	  (dy (/ (int->fix 4) height)))
       (when (<s buf 4096)
-	(puts (data #"mmap failed: \0"))
-	(putn buf)
-	(newline)
+	(puts 1 (data #"mmap failed: \0"))
+	(putn 1 buf)
+	(newline 1)
 	(%%exit 2))
       (pnm-header width height)
       (while (<u y height)
