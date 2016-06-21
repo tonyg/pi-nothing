@@ -45,8 +45,18 @@
 (define (int->fix i)
   (<< i 16))
 
+(define (fix*/64 f1 f2)
+  (>>s (* f1 f2) 16))
+
+(define (fix*/32 f1 f2)
+  (*/extended f1 f2 (hi lo)
+              (binor (<< hi 16) (>>u lo 16))))
+
 (define (escape-iteration-count cx cy)
-  (let ((mutable zx 0)
+  (let ((fix* (if (= (%%wordsize) 32)
+                  fix*/32
+                  fix*/64))
+        (mutable zx 0)
 	(mutable zy 0)
 	(mutable zx2 0)
 	(mutable zy2 0)
@@ -54,10 +64,10 @@
 	(iteration-limit 255))
     (while (logand (<s (+ zx2 zy2) (int->fix 4))
 		   (<u i iteration-limit))
-      (set! zx2 (>>s (* zx zx) 16))
-      (set! zy2 (>>s (* zy zy) 16))
+      (set! zx2 (fix* zx zx))
+      (set! zy2 (fix* zy zy))
       (let ((tx (+ cx (- zx2 zy2)))
-	    (ty (+ cy (>>s (* zx zy) 15))))
+	    (ty (+ cy (<< (fix* zx zy) 1))))
 	(set! i (+ i 1))
 	(set! zx tx)
 	(set! zy ty)))
