@@ -186,6 +186,18 @@
 
     [`(+ ,rands ...) (op2 tail? dest env 'w+ 0 rands)]
     [`(* ,rands ...) (op2 tail? dest env 'w* 1 rands)]
+    [`(*/extended ,a1 ,a2 (,hi ,lo) ,body ...)
+     (seq ([a1v (translate-exp #f (fresh-reg) a1 env)]
+           [a2v (translate-exp #f (fresh-reg) a2 env)])
+          (define r1 (fresh-reg))
+          (define r2 (fresh-reg))
+          (define rib (list (binding hi r1 '() '() #f)
+                            (binding lo r2 '() '() #f)))
+          (match-define (snippet instrs data val)
+            (translate-exp tail? dest `(begin ,@body) (append rib env)))
+          (snippet (cons `(w*/extended ,r1 ,r2 ,a1v ,a2v) instrs)
+                   data
+                   val))]
 
     [`(-)
      (error 'translate-exp "(-) needs arguments")]

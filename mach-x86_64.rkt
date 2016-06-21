@@ -51,6 +51,12 @@
 
 (define ((expand-instruction saved-locs) instr)
   (match instr
+    [`(w*/extended ,hi ,lo ,s1 ,s2)
+     (list `(move-word ,(preg 'rax) ,s1)
+           `(move-word ,(preg 'rcx) ,s2)
+           `(w*/extended ,(preg 'rdx) ,(preg 'rax) ,(preg 'rax) ,(preg 'rcx))
+           `(move-word ,hi ,(preg 'rdx))
+           `(move-word ,lo ,(preg 'rax)))]
     [`(wdiv ,target ,s1 ,s2)
      (list `(move-word ,(preg 'rdx) ,(lit 0))
 	   `(move-word ,(preg 'rax) ,s1)
@@ -202,6 +208,8 @@
     [`(w+ ,target ,target ,source)			(*op 'add (xs source) (xs target))]
     [`(w- ,target ,target ,source)			(*op 'sub (xs source) (xs target))]
     [`(w* ,target ,target ,source)			(*imul (xs source) (xs target))]
+    [`(w*/extended ,(preg 'rdx) ,(preg 'rax) ,(preg 'rax) ,(preg r))
+     (*imul/extended r)]
     [`(wand ,target ,target ,source)			(*op 'and (xs source) (xs target))]
     [`(wor ,target ,target ,source)			(*op 'or (xs source) (xs target))]
     [`(wxor ,target ,target ,source)			(*op 'xor (xs source) (xs target))]

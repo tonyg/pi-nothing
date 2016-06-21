@@ -100,9 +100,13 @@
 (define (*not target)
   (mod-r-m-32 #xF7 2 target))
 
-;; Unsigned multiply
+;; Unsigned multiply -- yields EDX:EAX
 (define (*mul multiplicand)
   (mod-r-m-32 #xF7 4 multiplicand))
+
+;; Signed multiply -- yields EDX:EAX
+(define (*imul/extended multiplicand)
+  (mod-r-m-32 #xF7 5 multiplicand))
 
 (define (*div divisor)
   (mod-r-m-32 #xF7 6 divisor))

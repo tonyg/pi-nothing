@@ -94,6 +94,7 @@
     [`(w+ ,target ,s1 ,s2)		(values #t (list target) (list s1 s2))]
     [`(w- ,target ,s1 ,s2)		(values #t (list target) (list s1 s2))]
     [`(w* ,target ,s1 ,s2)		(values #t (list target) (list s1 s2))]
+    [`(w*/extended ,t1 ,t2 ,s1 ,s2)     (values #t (list t1 t2) (list s1 s2))]
     [`(wand ,target ,s1 ,s2)		(values #t (list target) (list s1 s2))]
     [`(wor ,target ,s1 ,s2)		(values #t (list target) (list s1 s2))]
     [`(wxor ,target ,s1 ,s2)		(values #t (list target) (list s1 s2))]

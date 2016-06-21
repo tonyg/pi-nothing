@@ -58,6 +58,12 @@
 
 (define ((expand-instruction saved-locs) instr)
   (match instr
+    [`(w*/extended ,hi ,lo ,s1 ,s2)
+     (list `(move-word ,(preg 'r0) ,s1)
+           `(move-word ,(preg 'r1) ,s2)
+           `(w*/extended ,(preg 'r1) ,(preg 'r0) ,(preg 'r0) ,(preg 'r1))
+           `(move-word ,hi ,(preg 'r1))
+           `(move-word ,lo ,(preg 'r0)))]
     [`(wdiv ,target ,s1 ,s2)
      (list `(move-word ,(preg 'r0) ,s1)
 	   `(move-word ,(preg 'r1) ,s2)
@@ -330,6 +336,8 @@
     [`(w+ ,target ,s1 ,s2)			(nodata (*add 'al 0 (xs target) (xs s1) (xs s2)))]
     [`(w- ,target ,s1 ,s2)			(nodata (*sub 'al 0 (xs target) (xs s1) (xs s2)))]
     [`(w* ,target ,s1 ,s2)			(nodata (*mul 'al 0 (xs target) (xs s1) (xs s2)))]
+    [`(w*/extended ,t1 ,t2 ,s1 ,s2)
+     (nodata (*imul/extended 'al 0 (xs t2) (xs t1) (xs s1) (xs s2)))]
     [`(wand ,target ,s1 ,s2)
      (if (and (lit? s2)
 	      (not (best-rotation-exists? (lit-val s2)))

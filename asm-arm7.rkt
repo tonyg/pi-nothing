@@ -281,6 +281,34 @@
 		    4 9
 		    4 (reg-num rn))))
 
+(define (ensure-none-r15 who . regs)
+  (when (member 'r15 regs)
+    (error who "Use of R15 is not permitted")))
+
+;; Unsigned multiply
+(define (*mul/extended cc s rdlo rdhi rs rm)
+  (ensure-none-r15 '*mul/extended rdlo rdhi rs rm)
+  (imm32* (bitfield 4 (condition-code-num cc)
+                    7 4
+                    1 (bool->bit s)
+                    4 (reg-num rdhi)
+                    4 (reg-num rdlo)
+                    4 (reg-num rs)
+                    4 9
+                    4 (reg-num rm))))
+
+;; Signed multiply
+(define (*imul/extended cc s rdlo rdhi rs rm)
+  (ensure-none-r15 '*imul/extended rdlo rdhi rs rm)
+  (imm32* (bitfield 4 (condition-code-num cc)
+                    7 6
+                    1 (bool->bit s)
+                    4 (reg-num rdhi)
+                    4 (reg-num rdlo)
+                    4 (reg-num rs)
+                    4 9
+                    4 (reg-num rm))))
+
 ;; NB re +8: branch instruction assembly treats PC as being *the same
 ;; as the branch instruction's address*, i.e. the assembler
 ;; automatically compensates for the +8.
