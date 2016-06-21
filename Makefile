@@ -61,6 +61,9 @@ clean-examples:
 	racket exec-macho.rkt $*
 	mv $* $@
 
-%.elf: %.nothing
-	racket exec-elf.rkt $*
-	mv $* $@
+%.arm7.elf: %.nothing
+	racket exec-elf.rkt -a arm7 $* 2>&1 | tee $*.arm7.log
+%.i386.elf: %.nothing
+	racket exec-elf.rkt -a i386 $* 2>&1 | tee $*.i386.log
+%.x86_64.elf: %.nothing
+	racket exec-elf.rkt -a x86_64 $* 2>&1 | tee $*.x86_64.log
