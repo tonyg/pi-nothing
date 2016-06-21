@@ -255,9 +255,9 @@
 
 (define ((assemble-instr* xs sp-delta) i)
   (define bs ((assemble-instr xs sp-delta) i))
-  (write `(,i -> ,bs))
-  (newline)
-  (flush-output)
+  ;; (write `(,i -> ,bs))
+  ;; (newline)
+  ;; (flush-output)
   bs)
 
 (define (assemble inward-arg-count most-tail-args temp-count leaf? instrs)
