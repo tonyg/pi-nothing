@@ -29,7 +29,8 @@
 (require "tailcall.rkt")
 (require (only-in "machine.rkt" machine-description))
 
-(provide machine-arm7)
+(provide machine-arm7
+         (rename-out [cc calling-convention-arm7]))
 
 ;; r0-r11
 ;; r12 - scratch reg, never made available to the register allocator so free for use
