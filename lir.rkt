@@ -109,8 +109,8 @@
     [(? label?)				(values #f (list) (list))]
     [`(jmp ,target)			(values #f (list) (list target))]
     [`(ret ,r)				(values #f (list) (list r))]
-    [`(,(or 'call 'tailcall) ,target ,label (,arg ...))
-     (values #f (list target) (cons label arg))]))
+    [`(call ,target ,label (,arg ...))  (values #f (list target) (cons label arg))]
+    [`(tailcall ,label (,arg ...))      (values #f (list) (cons label arg))]))
 
 (define (def-use instr)
   (define-values (killable defs uses) (def-use* instr))
@@ -156,7 +156,7 @@
       [`(compare/jmp ,_ ,target ,_ ,_) (set-union (live-at-label target) (vector-ref in (+ pos 1)))]
       [`(jmp ,target)                  (live-at-label target)]
       [`(ret ,_)                       (set)]
-      [`(tailcall ,_ ,_ ,_)            (set)]
+      [`(tailcall ,_ ,_)            (set)]
       [_                               (vector-ref in (+ pos 1))]))
 
   (define (propagate-liveness)

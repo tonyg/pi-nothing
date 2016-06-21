@@ -304,7 +304,7 @@
 	   [tail?
 	    ;; Tail call
 	    (snippet (append (append* (map snippet-instrs rand-snips))
-			     (list `(tailcall ,dest ,rator-v ,(map snippet-val rand-snips))))
+			     (list `(tailcall ,rator-v ,(map snippet-val rand-snips))))
 		     (map snippet-data rand-snips)
 		     dest)]
 	   [(real-dest? dest)

@@ -74,25 +74,29 @@
 	     (map (lambda (loc name) `(move-word ,(preg name) ,loc)) saved-locs saved-regs)
 	     (map (lambda (name) `(use ,(preg name))) saved-regs)
 	     (list `(ret ,(preg 'rax))))]
-    [`(,(and op (or 'call 'tailcall)) ,target ,label (,arg ...))
+    [`(call ,target ,label (,arg ...))
      (define argcount (length arg))
-     (define calltype (if (eq? op 'tailcall) 'tail 'nontail))
-     (define (mkarg i) ((outward-argument-location cc) calltype argcount i))
+     (define (mkarg i) ((outward-argument-location cc) 'nontail argcount i))
      (append (do ((i 0 (+ i 1))
 		  (arg arg (cdr arg))
 		  (acc '() (cons `(move-word ,(mkarg i) ,(car arg))
 				 acc)))
 		 ((null? arg) (reverse acc)))
-	     (if (eq? calltype 'tail)
-		 (append
-		  (map (lambda (loc name) `(move-word ,(preg name) ,loc)) saved-locs saved-regs)
-		  ;;(map (lambda (name) `(use ,(preg name))) saved-regs)
-		  )
-		 (list))
-	     (list `(,op ,(preg 'rax) ,label ,(map mkarg (iota argcount))))
+	     (list `(call ,(preg 'rax) ,label ,(map mkarg (iota argcount))))
 	     (map (lambda (name) `(move-word ,(preg name) ,(junk))) killed-regs)
 	     (map (lambda (name) `(use ,(preg name))) killed-regs)
-	     (list`(move-word ,target ,(preg 'rax))))]
+	     (list `(move-word ,target ,(preg 'rax))))]
+    [`(tailcall ,label (,arg ...))
+     (define argcount (length arg))
+     (define (mkarg i) ((outward-argument-location cc) 'tail argcount i))
+     (append (do ((i 0 (+ i 1))
+		  (arg arg (cdr arg))
+		  (acc '() (cons `(move-word ,(mkarg i) ,(car arg))
+				 acc)))
+		 ((null? arg) (reverse acc)))
+             (map (lambda (loc name) `(move-word ,(preg name) ,loc)) saved-locs saved-regs)
+             ;;(map (lambda (name) `(use ,(preg name))) saved-regs)
+	     (list `(tailcall ,label ,(map mkarg (iota argcount)))))]
     [`(,(and op (or 'store-word 'store-byte)) ,target ,source)
      (define rt (if (non-reg? target) (fresh-reg) target))
      (define rs (if (non-reg? source) (fresh-reg) source))
@@ -230,7 +234,7 @@
      (*call (match target
 	      [(label tag) (label-reference tag)]
 	      [(preg r) r]))]
-    [`(tailcall ,(preg 'rax) ,target ,args)
+    [`(tailcall ,target ,args)
      (list (if (zero? sp-delta) '() (*op 'add sp-delta 'rsp))
 	   (*jmp (match target
 		   [(label tag) (label-reference tag)]

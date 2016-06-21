@@ -78,28 +78,29 @@
 	     (map (lambda (loc name) `(move-word ,(preg name) ,loc)) saved-locs saved-regs)
 	     (map (lambda (name) `(use ,(preg name))) saved-regs)
 	     (list `(ret ,(preg 'r0))))]
-    [`(,(and op (or 'call 'tailcall)) ,target ,label (,arg ...))
+    [`(call ,target ,label (,arg ...))
      (define argcount (length arg))
-     (define calltype (if (eq? op 'tailcall) 'tail 'nontail))
-     (define (mkarg i) ((outward-argument-location cc) calltype argcount i))
+     (define (mkarg i) ((outward-argument-location cc) 'nontail argcount i))
      (append (do ((i 0 (+ i 1))
 		  (arg arg (cdr arg))
 		  (acc '() (cons `(move-word ,(mkarg i) ,(car arg))
 				 acc)))
 		 ((null? arg) (reverse acc)))
-	     (if (eq? calltype 'tail)
-		 (append
-		  (map (lambda (loc name) `(move-word ,(preg name) ,loc)) saved-locs saved-regs)
-		  ;;(map (lambda (name) `(use ,(preg name))) saved-regs)
-		  )
-		 (list))
-	     (list `(,op ,(preg 'r0) ,label ,(map mkarg (iota argcount))))
-             (if (eq? calltype 'tail)
-                 (list)
-                 (append
-                  (map (lambda (name) `(move-word ,(preg name) ,(junk))) killed-regs)
-                  (map (lambda (name) `(use ,(preg name))) killed-regs)
-                  (list `(move-word ,target ,(preg 'r0))))))]
+	     (list `(call ,(preg 'r0) ,label ,(map mkarg (iota argcount))))
+             (map (lambda (name) `(move-word ,(preg name) ,(junk))) killed-regs)
+             (map (lambda (name) `(use ,(preg name))) killed-regs)
+             (list `(move-word ,target ,(preg 'r0))))]
+    [`(tailcall ,label (,arg ...))
+     (define argcount (length arg))
+     (define (mkarg i) ((outward-argument-location cc) 'tail argcount i))
+     (append (do ((i 0 (+ i 1))
+		  (arg arg (cdr arg))
+		  (acc '() (cons `(move-word ,(mkarg i) ,(car arg))
+				 acc)))
+		 ((null? arg) (reverse acc)))
+             (map (lambda (loc name) `(move-word ,(preg name) ,loc)) saved-locs saved-regs)
+             ;;(map (lambda (name) `(use ,(preg name))) saved-regs)
+	     (list `(tailcall ,label ,(map mkarg (iota argcount)))))]
     [`(,(and op (or 'store-word 'store-byte)) ,target ,source)
      (define rt (if (non-reg? target) (fresh-reg) target))
      (define rs (if (non-reg? source) (fresh-reg) source))
@@ -371,7 +372,7 @@
      (nodata (match target
 	       [(preg r) (*blx 'al r)]
 	       [(label tag) (*bl 'al (label-reference tag))]))]
-    [`(tailcall ,(preg 'r0) ,target ,args)
+    [`(tailcall ,target ,args)
      (nodata (list (if (zero? sp-delta) '() (*add 'al 0 'sp 'sp sp-delta))
 		   (match target
 		     [(preg r) (*mov 'al 0 'pc r)]

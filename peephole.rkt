@@ -40,7 +40,7 @@
 	 (cons move-instr (peephole rest)))]
     [(list* `(use ,_) rest)
      (peephole rest)]
-    [(list* (and call-instr `(tailcall ,_ ,_ ,_)) rest)
+    [(list* (and call-instr `(tailcall ,_ ,_)) rest)
      (cons call-instr
 	   (peephole (discard-until-label rest)))]
     [(list* instr rest)
