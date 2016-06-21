@@ -177,6 +177,10 @@
 		(define r (fresh-reg))
 		(list `(move-word ,r ,(temporary n))
 		      `(,op ,target ,r))]
+               [`(call ,target ,(? memory-location? proc) ,args)
+                (define r (fresh-reg))
+                (list `(move-word ,r ,proc)
+                      `(call ,target ,r ,args))]
 	       [i
 		(list i)])
 	      instrs))
