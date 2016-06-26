@@ -201,7 +201,7 @@
     [`(define (,proc ,argname ...)
 	,body ...)
      (write `(compiling ,proc ...)) (newline)
-     (define-values (code data) (compile-procedure md argname `(begin ,@body) global-env))
+     (define-values (code data _debug-map) (compile-procedure md proc argname `(begin ,@body) global-env))
      (values (cons (label-anchor proc) code) data)]
     [`(struct ,_ ...)	(values '() '())]
     [`(const ,_ ...)	(values '() '())]

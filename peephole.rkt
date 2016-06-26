@@ -34,8 +34,8 @@
     ['() '()]
     [(list* `(move-word ,_ ,(junk)) rest)
      (peephole rest)]
-    [(list* (and move-instr `(move-word ,x ,y)) rest)
-     (if (equal? x y)
+    [(list* (and move-instr `(move-word ,(? location? x) ,(? location? y))) rest)
+     (if (equal? (sanitize-location x) (sanitize-location y))
 	 (peephole rest)
 	 (cons move-instr (peephole rest)))]
     [(list* `(use ,_) rest)

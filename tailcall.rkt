@@ -143,12 +143,12 @@
 
 (define ((inward-argument-location cc) i)
   (if (argument-passed-in-register? cc i)
-      (preg (list-ref (calling-convention-argument-regs cc) i))
+      (preg (list-ref (calling-convention-argument-regs cc) i) #f)
       (inward-arg (- i (arg-stack-index-offset cc)))))
 
 (define ((outward-argument-location cc) calltype count i)
   (if (argument-passed-in-register? cc i)
-      (preg (list-ref (calling-convention-argument-regs cc) i))
+      (preg (list-ref (calling-convention-argument-regs cc) i) #f)
       (outward-arg calltype count (- i (arg-stack-index-offset cc)))))
 
 (define (frame-pad-words cc n)
@@ -172,8 +172,8 @@
     (match v
       [(lit n) n]
       [(label tag) (label-reference tag)]
-      [(preg r) r]
-      [(temporary n)
+      [(preg r _) r]
+      [(temporary n _)
        (if leaf?
 	   (sprel (- (* n word-size) sp-delta leaf-pad))
 	   (sprel (* n word-size)))]

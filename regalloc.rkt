@@ -29,15 +29,9 @@
 
 (define (instrs-subst x mapping)
   (define (walk x)
-    (if (hash-has-key? mapping x)
-	(hash-ref mapping x)
-	(match x
-	  [(cons a d) (cons (walk a) (walk d))]
-	  [(? struct? x)
-	   (define key (prefab-struct-key x))
-	   (when (not key) (error 'instrs-subst "Cannot substitute through ~v" x))
-	   (apply make-prefab-struct key (map walk (cdr (vector->list (struct->vector x)))))]
-	  [_ x])))
+    (if (reg? x)
+        (hash-ref mapping (sanitize-location x) x)
+        x))
   (define (walk-instr i) (if (pair? i) (map walk i) (walk i)))
   (map walk-instr x))
 
@@ -54,7 +48,7 @@
   (define def-instrs (map (lambda (i) (vector-ref instrs-vec i)) def-positions))
   (define def-uses (map (lambda (i)
 			  (define-values (killable defs uses) (def-use i))
-			  (for/set ((r (in-set uses))) (hash-ref mapping r r)))
+			  (for/set ((r (in-set uses))) (sanitize-location (hash-ref mapping r r))))
 			def-instrs))
   (define candidates (apply set-union (set) def-uses))
   ;; (pretty-write `(good-candidate-locations ,temp-reg
@@ -124,6 +118,13 @@
 	 availability
 	 (filter preg? (hash-keys live-ranges))))
 
+(define (extend-mapping mapping temp-reg loc-reg0)
+  (define src-var (reg-var temp-reg))
+  (define loc-reg (match loc-reg0
+                    [(temporary index _) (temporary index src-var)]
+                    [(preg r _) (preg r src-var)]))
+  (hash-set mapping (sanitize-location temp-reg) loc-reg))
+
 (define (print-availability context availability)
   (printf "(availability ~a\n" context)
   (for [(entry (in-list availability))]
@@ -174,35 +175,35 @@
 	  [found-reg
 	   (loop temp-count
 		 remaining-ranges
-		 (hash-set mapping temp-reg found-reg)
+                 (extend-mapping mapping temp-reg found-reg)
 		 remaining-availability)]
 	  [(best-spillable-register live-ranges mapping live-interval)
 	   => (lambda (reg-to-spill)
 		(define spilled-live-interval (hash-ref live-ranges reg-to-spill))
+                (define new-temp (temporary temp-count #f))
 		(define new-availability
 		  (append (update-availability
 			   availability
-			   (hash-ref mapping reg-to-spill)
+			   (sanitize-location (hash-ref mapping reg-to-spill))
 			   (lambda (old) (interval-union old spilled-live-interval)))
-			  (list (cons (temporary temp-count)
-				      (interval-invert spilled-live-interval)))))
+			  (list (cons new-temp (interval-invert spilled-live-interval)))))
 		(loop (+ temp-count 1)
 		      ranges
-		      (hash-set mapping reg-to-spill (temporary temp-count))
+                      (extend-mapping mapping reg-to-spill new-temp)
 		      new-availability))]
 	  [else ;; no spillable. New temp.
+           (define new-temp (temporary temp-count #f))
 	   (loop (+ temp-count 1)
 		 remaining-ranges
-		 (hash-set mapping temp-reg (temporary temp-count))
+		 (extend-mapping mapping temp-reg new-temp)
 		 (append remaining-availability
-			 (list (cons (temporary temp-count)
-				     (interval-invert live-interval)))))]))])))
+			 (list (cons new-temp (interval-invert live-interval)))))]))])))
 
 (define (allocate-registers md instrs)
   (define starting-reg-availability (map (lambda (r) (cons r (full-interval)))
 					 (available-regs md)))
   (let loop ((prev-temp-count 0) (prev-instrs instrs))
-    ;;(pretty-print `(allocation-iteration ,prev-temp-count ,prev-instrs))
+    ;; (pretty-print `(allocation-iteration ,prev-temp-count ,prev-instrs))
     (define-values (new-temp-count remaining-instrs mapping)
       (allocate-registers-once prev-temp-count prev-instrs starting-reg-availability))
     (define new-temps-only

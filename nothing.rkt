@@ -55,7 +55,7 @@
 		    finalval)])])]))
 
 (define (real-dest? dest)
-  (not (void? dest)))
+  (not (junk? dest)))
 
 (define (store-result dest val)
   (if (real-dest? dest)
@@ -144,7 +144,7 @@
 			  (match b
 			    [`(mutable ,name ,init-exp) (values #t name init-exp)]
 			    [`(,name ,init-exp) (values #f name init-exp)]))
-			(define r (fresh-reg))
+			(define r (fresh-reg name))
 			(match-define (snippet instrs data v) (translate-exp #f r init-exp env))
 			(if (and (lit? v) (not mutable?))
 			    (binding name v instrs data mutable?)
@@ -196,8 +196,8 @@
     [`(*/extended ,a1 ,a2 (,hi ,lo) ,body ...)
      (seq ([a1v (translate-exp #f (fresh-reg) a1 env)]
            [a2v (translate-exp #f (fresh-reg) a2 env)])
-          (define r1 (fresh-reg))
-          (define r2 (fresh-reg))
+          (define r1 (fresh-reg hi))
+          (define r2 (fresh-reg lo))
           (define rib (list (binding hi r1 '() '() #f)
                             (binding lo r2 '() '() #f)))
           (match-define (snippet instrs data val)
@@ -341,8 +341,8 @@
 
     ))
 
-(define (frontend exp raw-env)
-  (define target-reg (fresh-reg))
+(define (frontend proc-name exp raw-env)
+  (define target-reg (fresh-reg (string->symbol (format "$result$_~a" proc-name))))
   (define env (map (lambda (e) (binding (car e) (cadr e) '() '() #f)) raw-env))
   (match-define (snippet body-instrs body-data val) (translate-exp #t target-reg exp env))
   (values (append body-instrs

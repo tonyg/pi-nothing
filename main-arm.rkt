@@ -17,10 +17,12 @@
 ;; along with pi-nothing. If not, see <http://www.gnu.org/licenses/>.
 
 (require racket/match)
+(require racket/set)
 (require (only-in racket/file file->list))
 (require (only-in racket/list make-list append-map))
 (require racket/pretty)
 (require racket/date) ;; for KVer in write-trailer
+(require (only-in racket/hash hash-union))
 
 (require "driver.rkt")
 (require "linker.rkt")
@@ -218,14 +220,14 @@
     [`(define (,proc ,argname ...)
 	,body ...)
      (write `(compiling ,proc ...)) (newline)
-     (define-values (code data) (compile-procedure md argname `(begin ,@body) global-env))
-     (values (cons (label-anchor proc) code) data)]
-    [`(struct ,_ ...)	(values '() '())]
-    [`(const ,_ ...)	(values '() '())]
+     (define-values (code data debug-map) (compile-procedure md proc argname `(begin ,@body) global-env))
+     (values (cons (label-anchor proc) code) data debug-map)]
+    [`(struct ,_ ...)	(values '() '() (hash))]
+    [`(const ,_ ...)	(values '() '() (hash))]
     [_
      (error 'compile-toplevel "Cannot compile toplevel form: ~v" form)]))
 
-(define (link-blobs blobs)
+(define (link-blobs blobs debug-map)
   (define all-blobs (list* (startup-code)
 			   (__udivsi3-code)
                            (system-management-code)
@@ -240,10 +242,16 @@
 			   (write `(,(label-anchor-name anchor) -> ,(number->string addr 16)))
 			   (newline)])
 	    link-map)
+  (define access-debug-map
+    (match-lambda
+      [(label-anchor a)
+       (define actions (hash-ref debug-map (label a) #f))
+       (and actions (set->list actions))]))
   (disassemble-bytes! linked
 		      #:arch (machine-description-architecture md)
 		      #:base (start-addr)
-                      #:link-map link-map)
+                      #:link-map link-map
+                      #:debug-map access-debug-map)
   linked)
 
 (define (pad-to bs multiple)
@@ -283,17 +291,19 @@
   (define all-forms (file->list filename))
   (define global-env (extract-constants all-forms))
   (let loop ((forms all-forms)
-	     (blobs-rev '()))
+	     (blobs-rev '())
+             (debug-map (hash)))
     (match forms
       ['()
        (define blobs (reverse blobs-rev))
-       (link-blobs blobs)]
+       (link-blobs blobs debug-map)]
       [(cons form rest)
-       (define-values (code data) (compile-toplevel form global-env))
+       (define-values (code data new-debug-map) (compile-toplevel form global-env))
        (loop rest
 	     (list* (pad-to data 4)
 		    (pad-to code 4)
-		    blobs-rev))])))
+		    blobs-rev)
+             (hash-union debug-map new-debug-map))])))
 
 ;; Write a Raspberry Pi kernel trailer, to make the loader give us a devicetree.
 (define (write-trailer)

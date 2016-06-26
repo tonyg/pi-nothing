@@ -52,39 +52,40 @@
 (define killed-regs '(r0 r1 r2 r3 lr))
 (define saved-regs '(r4 r5 r6 r7 r8 r9 r10 r11 lr))
 
-(define available-regs (map preg (append (reverse saved-regs)
-                                         (reverse (filter (lambda (r) (not (memq r saved-regs)))
-                                                          killed-regs)))))
+(define available-regs (map (lambda (r) (preg r #f))
+                            (append (reverse saved-regs)
+                                    (reverse (filter (lambda (r) (not (memq r saved-regs)))
+                                                     killed-regs)))))
 
 (define ((expand-instruction saved-locs) instr)
   (match instr
     [`(w*/extended ,hi ,lo ,s1 ,s2)
-     (list `(move-word ,(preg 'r0) ,s1)
-           `(move-word ,(preg 'r1) ,s2)
-           `(w*/extended ,(preg 'r1) ,(preg 'r0) ,(preg 'r0) ,(preg 'r1))
-           `(move-word ,hi ,(preg 'r1))
-           `(move-word ,lo ,(preg 'r0)))]
+     (list `(move-word ,(preg 'r0 #f) ,s1)
+           `(move-word ,(preg 'r1 #f) ,s2)
+           `(w*/extended ,(preg 'r1 #f) ,(preg 'r0 #f) ,(preg 'r0 #f) ,(preg 'r1 #f))
+           `(move-word ,hi ,(preg 'r1 #f))
+           `(move-word ,lo ,(preg 'r0 #f)))]
     [`(wdiv ,target ,s1 ,s2)
-     (list `(move-word ,(preg 'r0) ,s1)
-	   `(move-word ,(preg 'r1) ,s2)
-	   `(call ,(preg 'r0) ,(label '__udivsi3) (,(preg 'r0) ,(preg 'r1)))
-	   `(use ,(preg 'r2))
-	   `(use ,(preg 'r3))
-	   `(use ,(preg 'lr))
-	   `(move-word ,target ,(preg 'r0)))]
+     (list `(move-word ,(preg 'r0 #f) ,s1)
+	   `(move-word ,(preg 'r1 #f) ,s2)
+	   `(call ,(preg 'r0 #f) ,(label '__udivsi3) (,(preg 'r0 #f) ,(preg 'r1 #f)))
+	   `(use ,(preg 'r2 #f))
+	   `(use ,(preg 'r3 #f))
+	   `(use ,(preg 'lr #f))
+	   `(move-word ,target ,(preg 'r0 #f)))]
     [`(wmod ,target ,s1 ,s2)
-     (list `(move-word ,(preg 'r0) ,s1)
-	   `(move-word ,(preg 'r1) ,s2)
-	   `(call ,(preg 'r0) ,(label '__udivsi3) (,(preg 'r0) ,(preg 'r1)))
-	   `(use ,(preg 'r2))
-	   `(use ,(preg 'r3))
-	   `(use ,(preg 'lr))
-	   `(move-word ,target ,(preg 'r1)))]
+     (list `(move-word ,(preg 'r0 #f) ,s1)
+	   `(move-word ,(preg 'r1 #f) ,s2)
+	   `(call ,(preg 'r0 #f) ,(label '__udivsi3) (,(preg 'r0 #f) ,(preg 'r1 #f)))
+	   `(use ,(preg 'r2 #f))
+	   `(use ,(preg 'r3 #f))
+	   `(use ,(preg 'lr #f))
+	   `(move-word ,target ,(preg 'r1 #f)))]
     [`(ret ,target)
-     (append (list `(move-word ,(preg 'r0) ,target))
-	     (map (lambda (loc name) `(move-word ,(preg name) ,loc)) saved-locs saved-regs)
-	     (map (lambda (name) `(use ,(preg name))) saved-regs)
-	     (list `(ret ,(preg 'r0))))]
+     (append (list `(move-word ,(preg 'r0 (lir-value-var target)) ,target))
+	     (map (lambda (loc name) `(move-word ,(preg name #f) ,loc)) saved-locs saved-regs)
+	     (map (lambda (name) `(use ,(preg name #f))) saved-regs)
+	     (list `(ret ,(preg 'r0 (lir-value-var target)))))]
     [`(call ,target ,label (,arg ...))
      (define argcount (length arg))
      (define (mkarg i) ((outward-argument-location cc) 'nontail argcount i))
@@ -93,10 +94,10 @@
 		  (acc '() (cons `(move-word ,(mkarg i) ,(car arg))
 				 acc)))
 		 ((null? arg) (reverse acc)))
-	     (list `(call ,(preg 'r0) ,label ,(map mkarg (iota argcount))))
-             (map (lambda (name) `(move-word ,(preg name) ,(junk))) killed-regs)
-             (map (lambda (name) `(use ,(preg name))) killed-regs)
-             (list `(move-word ,target ,(preg 'r0))))]
+	     (list `(call ,(preg 'r0 #f) ,label ,(map mkarg (iota argcount))))
+             (map (lambda (name) `(move-word ,(preg name #f) ,(junk))) killed-regs)
+             (map (lambda (name) `(use ,(preg name #f))) killed-regs)
+             (list `(move-word ,target ,(preg 'r0 #f))))]
     [`(tailcall ,label (,arg ...))
      (define argcount (length arg))
      (define (mkarg i) ((outward-argument-location cc) 'tail argcount i))
@@ -105,8 +106,8 @@
 		  (acc '() (cons `(move-word ,(mkarg i) ,(car arg))
 				 acc)))
 		 ((null? arg) (reverse acc)))
-             (map (lambda (loc name) `(move-word ,(preg name) ,loc)) saved-locs saved-regs)
-             ;;(map (lambda (name) `(use ,(preg name))) saved-regs)
+             (map (lambda (loc name) `(move-word ,(preg name #f) ,loc)) saved-locs saved-regs)
+             ;;(map (lambda (name) `(use ,(preg name #f))) saved-regs)
 	     (list `(tailcall ,label ,(map mkarg (iota argcount)))))]
     [`(,(and op (or 'store-word 'store-byte)) ,target ,source)
      (define rt (if (non-reg? target) (fresh-reg) target))
@@ -128,7 +129,7 @@
 (define (expand-instructions init-arg-instrs instrs)
   (define saved-locs (map (lambda (r) (fresh-reg)) saved-regs))
   (define expander (expand-instruction saved-locs))
-  (append (map (lambda (loc name) `(move-word ,loc ,(preg name))) saved-locs saved-regs)
+  (append (map (lambda (loc name) `(move-word ,loc ,(preg name #f))) saved-locs saved-regs)
 	  (append-map expander init-arg-instrs)
 	  (append-map expander instrs)))
 
@@ -232,22 +233,26 @@
 		(define r (fresh-reg))
 		(list `(move-word ,r ,m)
                       `(compare/jmp ,cmpop ,target ,n ,r))]
-	       [`(,(and op (or 'load-word 'load-byte)) ,(temporary n) ,source ,offset)
+	       [`(,(and op (or 'load-word 'load-byte)) ,(temporary n var) ,source ,offset)
 		(define r (fresh-reg))
 		(list `(,op ,r ,source ,offset)
-		      `(move-word ,(temporary n) ,r))]
-	       [`(,(and op (or 'load-word 'load-byte)) ,target ,(temporary n) ,offset)
+		      `(move-word ,(temporary n var) ,r))]
+	       [`(,(and op (or 'load-word 'load-byte)) ,target ,(temporary n var) ,offset)
 		(define r (fresh-reg))
-                (list `(move-word ,r ,(temporary n))
+                (list `(move-word ,r ,(temporary n var))
                       `(,op ,target ,r ,offset))]
-               [`(,(and op (or 'store-word 'store-byte)) ,(temporary n) ,source)
+               [`(,(and op (or 'store-word 'store-byte)) ,(temporary n var) ,source)
                 (define r (fresh-reg))
-                (list `(move-word ,r ,(temporary n))
+                (list `(move-word ,r ,(temporary n var))
                       `(,op ,r ,source))]
-	       [`(,(and op (or 'store-word 'store-byte)) ,target ,(temporary n))
+	       [`(,(and op (or 'store-word 'store-byte)) ,target ,(temporary n var))
 		(define r (fresh-reg))
-		(list `(move-word ,r ,(temporary n))
+		(list `(move-word ,r ,(temporary n var))
 		      `(,op ,target ,r))]
+               [`(call ,target ,(? memory-location? proc) ,args)
+                (define r (fresh-reg))
+                (list `(move-word ,r ,proc)
+                      `(call ,target ,r ,args))]
 	       [i
 		(list i)])
 	      instrs))
@@ -317,21 +322,21 @@
 			   '())]
       [else
        (nodata (*mov 'al 0 real-target real-source))])]
-    [`(load-word ,(preg target) ,(preg source) ,ofs)
+    [`(load-word ,(preg target _) ,(preg source _) ,ofs)
      (nodata (*ldr 'al target (@reg source '+ ofs)))]
-    [`(load-word ,(preg target) ,(lit n) ,ofs)
+    [`(load-word ,(preg target _) ,(lit n) ,ofs)
      (indirect-immediate target
 			 (+ n ofs)
 			 (*ldr 'al target (@reg target '+ 0)))]
-    [`(load-byte ,(preg target) ,(preg source) ,ofs)
+    [`(load-byte ,(preg target _) ,(preg source _) ,ofs)
      (nodata (*ldrb 'al target (@reg source '+ ofs)))]
-    [`(load-byte ,(preg target) ,(lit n) ,ofs)
+    [`(load-byte ,(preg target _) ,(lit n) ,ofs)
      (indirect-immediate target
 			 (+ n ofs)
 			 (*ldrb 'al target (@reg target '+ 0)))]
-    [`(store-word ,(preg target) ,(preg source))
+    [`(store-word ,(preg target _) ,(preg source _))
      (nodata (*str 'al source (@reg target '+ 0)))]
-    [`(store-byte ,(preg target) ,(preg source))
+    [`(store-byte ,(preg target _) ,(preg source _))
      (nodata (*strb 'al source (@reg target '+ 0)))]
     [`(w+ ,target ,s1 ,s2)			(nodata (*add 'al 0 (xs target) (xs s1) (xs s2)))]
     [`(w- ,target ,s1 ,s2)			(nodata (*sub 'al 0 (xs target) (xs s1) (xs s2)))]
@@ -350,8 +355,8 @@
     [`(wor ,target ,s1 ,s2)			(nodata (*orr 'al 0 (xs target) (xs s1) (xs s2)))]
     [`(wxor ,target ,s1 ,s2)			(nodata (*eor 'al 0 (xs target) (xs s1) (xs s2)))]
     [`(wnot ,target ,source)			(nodata (*mvn 'al 0 (xs target) (xs source)))]
-    [`(wshift ,op ,(preg target) ,(preg s1) ,s2)
-     (define shift-val (match s2 [(lit n) n] [(preg r) r]))
+    [`(wshift ,op ,(preg target _) ,(preg s1 _) ,s2)
+     (define shift-val (match s2 [(lit n) n] [(preg r _) r]))
      (nodata (*mov 'al 0 target (@shifted s1 (case op
 					       [(<<) shift-val]
 					       [(>>u) (@lsr shift-val)]
@@ -374,17 +379,17 @@
     [(label tag)
      (nodata (label-anchor tag))]
     [`(jmp ,(label tag))			(nodata (*b 'al (label-reference tag)))]
-    [`(ret ,(preg 'r0))
+    [`(ret ,(preg 'r0 _))
      (nodata (list (if (zero? sp-delta) '() (*add 'al 0 'sp 'sp sp-delta))
 		   (*mov 'al 0 'pc 'lr)))]
-    [`(call ,(preg 'r0) ,target ,args)
+    [`(call ,(preg 'r0 _) ,target ,args)
      (nodata (match target
-	       [(preg r) (*blx 'al r)]
+	       [(preg r _) (*blx 'al r)]
 	       [(label tag) (*bl 'al (label-reference tag))]))]
     [`(tailcall ,target ,args)
      (nodata (list (if (zero? sp-delta) '() (*add 'al 0 'sp 'sp sp-delta))
 		   (match target
-		     [(preg r) (*mov 'al 0 'pc r)]
+		     [(preg r _) (*mov 'al 0 'pc r)]
 		     [(label tag) (*b 'al (label-reference tag))])))]
     [_ (error 'assemble-instr "Cannot assemble ~v" i)]))
 

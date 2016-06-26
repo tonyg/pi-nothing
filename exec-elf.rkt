@@ -20,11 +20,13 @@
 ;; TODO: factor out commonality between main-arm.rkt and this.
 
 (require racket/match)
+(require racket/set)
 (require racket/system)
 (require racket/format)
 (require racket/pretty)
 (require (only-in racket/file file->list))
 (require (only-in racket/list make-list append-map))
+(require (only-in racket/hash hash-union!))
 
 (require bitsyntax)
 
@@ -43,10 +45,10 @@
     [`(define (,proc ,argname ...)
 	,body ...)
      (write `(compiling ,proc ...)) (newline)
-     (define-values (code data) (compile-procedure md argname `(begin ,@body) global-env))
-     (values (cons (label-anchor proc) code) data)]
-    [`(struct ,_ ...)	(values '() '())]
-    [`(const ,_ ...)	(values '() '())]
+     (define-values (code data debug-map) (compile-procedure md proc argname `(begin ,@body) global-env))
+     (values (cons (label-anchor proc) code) data debug-map)]
+    [`(struct ,_ ...)	(values '() '() (hash))]
+    [`(const ,_ ...)	(values '() '() (hash))]
     [_
      (error 'compile-toplevel "Cannot compile toplevel form: ~v" form)]))
 
@@ -82,12 +84,15 @@
                       #:pad-chunk pad-chunk)
   (define all-forms (file->list filename))
   (define global-env (extract-constants all-forms))
-  (for/list [(form all-forms)]
-    (define-values (code data) (compile-toplevel md form global-env))
-    (list (pad-chunk code)
-          (pad-chunk data))))
+  (define debug-map (make-hash))
+  (values (for/list [(form all-forms)]
+            (define-values (code data new-debug-map) (compile-toplevel md form global-env))
+            (hash-union! debug-map new-debug-map)
+            (list (pad-chunk code)
+                  (pad-chunk data)))
+          debug-map))
 
-(define (link-blobs blobs md start-addr)
+(define (link-blobs blobs md start-addr debug-map)
   (define-values (linked0 relocs link-map) (link blobs start-addr))
   (when (not (null? relocs))
     (error 'link-blobs "Unresolved relocations: ~v" relocs))
@@ -97,10 +102,16 @@
 			   (write `(,(label-anchor-name anchor) -> ,(number->string addr 16)))
 			   (newline)])
 	    link-map)
+  (define access-debug-map
+    (match-lambda
+      [(label-anchor a)
+       (define actions (hash-ref debug-map (label a) #f))
+       (and actions (set->list actions))]))
   (disassemble-bytes! linked
   		      #:arch (machine-description-architecture md)
   		      #:base start-addr
-                      #:link-map link-map)
+                      #:link-map link-map
+                      #:debug-map access-debug-map)
   linked)
 
 (define ((make-pad-chunk multiple pad-byte) bs)
@@ -122,19 +133,22 @@
                ['i386 (local-require "mach-i386.rkt") machine-i386]
                ['x86_64 (local-require "mach-x86_64.rkt") machine-x86_64]))
 
-  (define blobs (list (match arch
-                        ['arm7 (arm7-prelude)]
-                        ['i386 (i386-prelude)]
-                        ['x86_64 (x86_64-prelude)])
-                      (compile-file (string-append filename-base".nothing")
-                                    #:md md
-                                    #:pad-chunk (match arch
-                                                  ['arm7 (make-pad-chunk 4 0)]
-                                                  ['i386 (make-pad-chunk 4 #x90)] ;; NOP
-                                                  ['x86_64 (make-pad-chunk 16 #x90)] ;; NOP
-                                                  ))))
+  (define-values (compiled-blobs debug-map)
+    (compile-file (string-append filename-base".nothing")
+                  #:md md
+                  #:pad-chunk (match arch
+                                ['arm7 (make-pad-chunk 4 0)]
+                                ['i386 (make-pad-chunk 4 #x90)] ;; NOP
+                                ['x86_64 (make-pad-chunk 16 #x90)] ;; NOP
+                                )))
 
-  (define linked (link-blobs blobs md start-addr))
+  (define all-blobs (list (match arch
+                            ['arm7 (arm7-prelude)]
+                            ['i386 (i386-prelude)]
+                            ['x86_64 (x86_64-prelude)])
+                          compiled-blobs))
+
+  (define linked (link-blobs all-blobs md start-addr debug-map))
 
   (write-executable (format "~a.~a.elf" filename-base arch)
                     (match arch
@@ -200,9 +214,9 @@
     (define R (make-location-resolver calling-convention-arm7 arg-count 0 (+ temp-count 1) #t))
     (define (A n) (R (inward-argument-location machine-arm7 n)))
     (list (label-anchor name)
-          (*str 'al 'r7 (R (temporary temp-count)))
+          (*str 'al 'r7 (R (temporary temp-count 'saved-r7)))
           (body-maker R A)
-          (*ldr 'al 'r7 (R (temporary temp-count)))
+          (*ldr 'al 'r7 (R (temporary temp-count 'saved-r7)))
           (*mov 'al 0 'pc 'lr)))
 
   (list (*bl 'al (label-reference 'main))
@@ -226,15 +240,15 @@
         (make-syscall '%%mmap 6 2 ;; r0=addr, r1=len, r2=prot, r3=flags,
                                   ;; r4=fd, r5=offset
                       (lambda (R A)
-                        (list (*str 'al 'r4 (R (temporary 0)))
-                              (*str 'al 'r5 (R (temporary 1)))
+                        (list (*str 'al 'r4 (R (temporary 0 'saved-r4)))
+                              (*str 'al 'r5 (R (temporary 1 'saved-r5)))
                               (*ldr 'al 'r4 (A 4))
                               (*ldr 'al 'r5 (A 5))
                               (*mov 'al 0 'r5 (@shifted 'r5 -12)) ;; convert to pages
                               (*mov 'al 0 'r7 #xc0) ;; mmap_pgoff
                               (*swi 'al 0)
-                              (*ldr 'al 'r4 (R (temporary 0)))
-                              (*ldr 'al 'r5 (R (temporary 1))))))))
+                              (*ldr 'al 'r4 (R (temporary 0 'saved-r4)))
+                              (*ldr 'al 'r5 (R (temporary 1 'saved-r5))))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 

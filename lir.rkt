@@ -47,6 +47,9 @@
 	 reg-or-preg?
 	 non-reg?
 
+         current-location-sanitizer
+         lir-value-var
+         sanitize-location
 	 def-use
 
 	 compute-live-intervals
@@ -57,14 +60,15 @@
 
 (struct lit (val) #:prefab)
 (struct junk () #:prefab) ;; marks a dead register
-(struct reg (tag) #:prefab) ;; tag is a gensym. TODO: is this sensible?
-(struct label (tag) #:prefab) ;; tag is a gensym. TODO: is this sensible? 
+(struct reg (tag var) #:prefab) ;; tag is a gensym. TODO: is this sensible?
+(struct label (tag) #:prefab) ;; tag is a gensym. TODO: is this sensible?
 
-(define (fresh-reg) (reg (gensym 'R)))
-(define (fresh-label) (label (gensym 'L)))
+(define (fresh-reg [var #f]) (reg (gensym 'R) var))
+(define (fresh-label [suffix #f]) (label (gensym (if suffix (format "L~a" suffix) 'L))))
 
-(struct preg (name) #:prefab) ;; physical registers
-(struct temporary (index) #:prefab) ;; spill location
+(struct preg (name var) #:prefab) ;; physical registers
+(struct temporary (index var) #:prefab) ;; spill location
+
 (struct inward-arg (index) #:prefab)
 (struct outward-arg (calltype count index) #:prefab)
 
@@ -83,6 +87,23 @@
 
 (define (non-reg? x)
   (not (reg-or-preg? x)))
+
+(define (lir-value-var loc)
+  (match loc
+    [(preg name var) var]
+    [(temporary index var) var]
+    [(reg name var) var]
+    [_ #f]))
+
+;; Strip out any provenance/debug information from a location.
+;; Used to make equivalences line up properly during register allocation.
+(define (sanitize-location loc)
+  (match loc
+    [(preg name _) (preg name #f)]
+    [(temporary index _) (temporary index #f)]
+    [(? reg?) loc]
+    [(? inward-arg?) loc]
+    [(? outward-arg?) loc]))
 
 (define (def-use* instr)
   (match instr
@@ -113,11 +134,14 @@
     [`(call ,target ,label (,arg ...))  (values #f (list target) (cons label arg))]
     [`(tailcall ,label (,arg ...))      (values #f (list) (cons label arg))]))
 
+(define current-location-sanitizer (make-parameter sanitize-location))
+
 (define (def-use instr)
   (define-values (killable defs uses) (def-use* instr))
+  (define san (current-location-sanitizer))
   (values killable
-	  (for/list [(d defs) #:when (location? d)] d)
-	  (for/list [(u uses) #:when (location? u)] u)))
+	  (for/list [(d defs) #:when (location? d)] (san d))
+	  (for/list [(u uses) #:when (location? u)] (san u))))
 
 ;; Instructions are numbered sequentially starting from zero.
 ;; Registers are technically live on the edges *between* instructions,
@@ -203,9 +227,12 @@
     (define reg-strings
       (for/list [(r (in-set (vector-ref raw-live-map k)))]
         (match r
-          [(reg s) (symbol->string s)]
-          [(preg s) (symbol->string s)]
-          [(temporary n) (format "t~a" n)]
+          [(reg s #f) (symbol->string s)]
+          [(reg s var) (format "~a(~a)" s var)]
+          [(preg s #f) (symbol->string s)]
+          [(preg s var) (format "~a(~a)" s var)]
+          [(temporary n #f) (format "t~a" n)]
+          [(temporary n var) (format "t~a(~a)" n var)]
           [(inward-arg n) (format "i~a" n)]
           [(outward-arg _ _ n) (format "o~a" n)]
           [other (format "~a" other)])))

@@ -25,10 +25,13 @@
 ;;(define available-regs (map preg (list 'r0 'r1)))
 ;;(define available-regs (map preg (list)))
 
+(require racket/match)
+
 (require "driver.rkt")
 (require "dump-bytes.rkt")
 (require "disasm.rkt")
 (require "platform.rkt")
+(require "linker.rkt")
 
 (require "lir.rkt")
 (require "machine.rkt")
@@ -44,11 +47,14 @@
   (display "===========================================================================")
   (newline)
   (pretty-print exp)
-  (define machine-code (compile-and-link-procedure te-machine args exp env #x80000000))
+  (define-values (machine-code link-map debug-map)
+    (compile-and-link-procedure te-machine 'ANONYMOUS args exp env #x80000000))
   (dump-bytes! machine-code #:base #x80000000) (newline) (flush-output)
   (disassemble-bytes! machine-code
 		      #:arch (machine-description-architecture te-machine)
-		      #:base #x80000000)
+		      #:base #x80000000
+                      #:link-map link-map
+                      #:debug-map (match-lambda [(label-anchor a) (hash-ref debug-map (label a) #f)]))
   (display "===========================================================================")
   (newline)
   (newline))
@@ -62,11 +68,15 @@
   (pretty-print exp)
   (pretty-print args)
   (pretty-print vals)
-  (define machine-code (compile-and-link-procedure (current-machine-description) args exp env
-						   ;; TODO: better way of determining base-address
-						   #x80000000))
+  (define-values (machine-code link-map debug-map)
+    (compile-and-link-procedure (current-machine-description) 'ANONYMOUS args exp env
+                                ;; TODO: better way of determining base-address
+                                #x80000000))
   (dump-bytes! machine-code #:base #x80000000) (newline) (flush-output)
-  (disassemble-bytes! machine-code #:base #x80000000)
+  (disassemble-bytes! machine-code
+                      #:base #x80000000
+                      #:link-map link-map
+                      #:debug-map (match-lambda [(label-anchor a) (hash-ref debug-map (label a) #f)]))
   (define p (reflect-machine-code machine-code
 				  (map (lambda (arg) inttype) args)
 				  inttype))

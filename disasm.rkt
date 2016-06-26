@@ -32,6 +32,8 @@
 ;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+(require racket/match)
+(require racket/set)
 (require (only-in racket/port with-input-from-bytes with-output-to-string))
 (require (only-in racket/system system))
 (require (only-in racket/string string-split))
@@ -44,30 +46,42 @@
 			  #:arch [arch (current-cpu-architecture)]
 			  #:base [base 0]
 			  #:show-binary [show-binary #t]
-                          #:link-map [link-map '()])
+                          #:link-map [link-map '()]
+                          #:debug-map [debug-map (lambda (a) #f)])
   (case arch
-    [(arm7) (disassemble-arm7 x len base link-map)]
-    [(i386) (disassemble-udcli "-32" x len base show-binary link-map)]
-    [(x86_64) (disassemble-udcli "-64" x len base show-binary link-map)]
+    [(arm7) (disassemble-arm7 x len base link-map debug-map)]
+    [(i386) (disassemble-udcli "-32" x len base show-binary link-map debug-map)]
+    [(x86_64) (disassemble-udcli "-64" x len base show-binary link-map debug-map)]
     [else (error 'disassemble-raw! "Unsupported architecture ~v" arch)]))
 
 (define (disassemble-bytes! bs
 			    #:arch [arch (current-cpu-architecture)]
 			    #:base [base 0]
 			    #:show-binary [show-binary #t]
-                            #:link-map [link-map '()])
+                            #:link-map [link-map '()]
+                            #:debug-map [debug-map (lambda (a) #f)])
   (disassemble-raw! bs
                     (bytes-length bs)
                     #:arch arch
                     #:base base
                     #:show-binary show-binary
-                    #:link-map link-map))
+                    #:link-map link-map
+                    #:debug-map debug-map))
 
 (define (invert-map link-map)
-  (for/hash [(entry link-map)]
-    (values (cdr entry) (car entry))))
+  (for/fold [(r (hash))] [(entry link-map)]
+    (hash-update r (cdr entry) (lambda (vs) (set-add vs (car entry))) set)))
 
-(define (disassemble-arm7 x len base link-map)
+(define (dump-anchor anchors debug-map)
+  (newline)
+  (for [(anchor anchors)]
+    (printf "~a:~a\n"
+            anchor
+            (match (debug-map anchor)
+              [#f ""]
+              [actions (format " ~a" actions)]))))
+
+(define (disassemble-arm7 x len base link-map debug-map)
   (define addr-map (invert-map link-map))
   (define lines
     (string-split
@@ -80,17 +94,17 @@
      "\n"))
   (for [(line (in-list lines))]
     (define pieces (string-split line))
-    (define maybe-anchor (and (pair? pieces)
-                              (hash-ref addr-map (string->number (car pieces) 16) #f)))
-    (when maybe-anchor (printf "\n~a:\n" maybe-anchor))
+    (define maybe-anchors (and (pair? pieces)
+                               (hash-ref addr-map (string->number (car pieces) 16) #f)))
+    (when maybe-anchors (dump-anchor maybe-anchors debug-map))
     (define maybe-ref (let ((m (regexp-match #px"&(........)" line)))
                         (and m
                              (hash-ref addr-map (string->number (cadr m) 16) #f))))
     (if maybe-ref
-        (printf "~a ;; ~a\n" line maybe-ref)
+        (printf "~a ;; ~a\n" line (set->list maybe-ref))
         (printf "~a\n" line))))
 
-(define (disassemble-udcli mode x len base show-binary link-map)
+(define (disassemble-udcli mode x len base show-binary link-map debug-map)
   (define addr-map (invert-map link-map))
   (define lines
     (string-split
@@ -102,11 +116,11 @@
      "\n"))
   (for [(line (in-list lines))]
     (define addr (string->number (substring line 0 16) 16))
-    (define maybe-anchor (and addr (hash-ref addr-map addr #f)))
-    (when maybe-anchor (printf "\n~a:\n" maybe-anchor))
+    (define maybe-anchors (and addr (hash-ref addr-map addr #f)))
+    (when maybe-anchors (dump-anchor maybe-anchors debug-map))
     (define maybe-ref (let ((m (regexp-match #px".*0x([0-9a-fA-F]+)" line)))
                         (and m
                              (hash-ref addr-map (string->number (cadr m) 16) #f))))
     (if maybe-ref
-        (printf "~a ;; ~a\n" line maybe-ref)
+        (printf "~a ;; ~a\n" line (set->list maybe-ref))
         (printf "~a\n" line))))

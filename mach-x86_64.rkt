@@ -46,40 +46,41 @@
 ;; At the moment putting the preferred register later in the list
 ;; makes it tried first. See the details of how the recursion in
 ;; find-available-register works.
-(define available-regs (map preg (append (reverse saved-regs)
-                                         (reverse killed-regs))))
+(define available-regs (map (lambda (r) (preg r #f))
+                            (append (reverse saved-regs)
+                                    (reverse killed-regs))))
 
 (define ((expand-instruction saved-locs) instr)
   (match instr
     [`(w*/extended ,hi ,lo ,s1 ,s2)
-     (list `(move-word ,(preg 'rax) ,s1)
-           `(move-word ,(preg 'rcx) ,s2)
-           `(w*/extended ,(preg 'rdx) ,(preg 'rax) ,(preg 'rax) ,(preg 'rcx))
-           `(move-word ,hi ,(preg 'rdx))
-           `(move-word ,lo ,(preg 'rax)))]
+     (list `(move-word ,(preg 'rax #f) ,s1)
+           `(move-word ,(preg 'rcx #f) ,s2)
+           `(w*/extended ,(preg 'rdx #f) ,(preg 'rax #f) ,(preg 'rax #f) ,(preg 'rcx #f))
+           `(move-word ,hi ,(preg 'rdx #f))
+           `(move-word ,lo ,(preg 'rax #f)))]
     [`(wdiv ,target ,s1 ,s2)
-     (list `(move-word ,(preg 'rdx) ,(lit 0))
-	   `(move-word ,(preg 'rax) ,s1)
-	   `(move-word ,(preg 'rcx) ,s2)
-	   `(wdiv ,(preg 'rax) ,(preg 'rax) ,(preg 'rcx))
-	   `(use ,(preg 'rdx))
-	   `(move-word ,target ,(preg 'rax)))]
+     (list `(move-word ,(preg 'rdx #f) ,(lit 0))
+	   `(move-word ,(preg 'rax #f) ,s1)
+	   `(move-word ,(preg 'rcx #f) ,s2)
+	   `(wdiv ,(preg 'rax #f) ,(preg 'rax #f) ,(preg 'rcx #f))
+	   `(use ,(preg 'rdx #f))
+	   `(move-word ,target ,(preg 'rax #f)))]
     [`(wmod ,target ,s1 ,s2)
-     (list `(move-word ,(preg 'rdx) ,(lit 0))
-	   `(move-word ,(preg 'rax) ,s1)
-	   `(move-word ,(preg 'rcx) ,s2)
-	   `(wmod ,(preg 'rax) ,(preg 'rax) ,(preg 'rcx))
-	   `(use ,(preg 'rax))
-	   `(move-word ,target ,(preg 'rdx)))]
+     (list `(move-word ,(preg 'rdx #f) ,(lit 0))
+	   `(move-word ,(preg 'rax #f) ,s1)
+	   `(move-word ,(preg 'rcx #f) ,s2)
+	   `(wmod ,(preg 'rax #f) ,(preg 'rax #f) ,(preg 'rcx #f))
+	   `(use ,(preg 'rax #f))
+	   `(move-word ,target ,(preg 'rdx #f)))]
     [`(compare/set ,cmpop ,target ,s1 ,s2)
-     (list `(move-word ,(preg 'rax) ,s1)
-	   `(compare/set ,cmpop ,(preg 'rax) ,(preg 'rax) ,s2)
-	   `(move-word ,target ,(preg 'rax)))]
+     (list `(move-word ,(preg 'rax #f) ,s1)
+	   `(compare/set ,cmpop ,(preg 'rax #f) ,(preg 'rax #f) ,s2)
+	   `(move-word ,target ,(preg 'rax #f)))]
     [`(ret ,target)
-     (append (list `(move-word ,(preg 'rax) ,target))
-	     (map (lambda (loc name) `(move-word ,(preg name) ,loc)) saved-locs saved-regs)
-	     (map (lambda (name) `(use ,(preg name))) saved-regs)
-	     (list `(ret ,(preg 'rax))))]
+     (append (list `(move-word ,(preg 'rax (lir-value-var target)) ,target))
+	     (map (lambda (loc name) `(move-word ,(preg name #f) ,loc)) saved-locs saved-regs)
+	     (map (lambda (name) `(use ,(preg name #f))) saved-regs)
+	     (list `(ret ,(preg 'rax (lir-value-var target)))))]
     [`(call ,target ,label (,arg ...))
      (define argcount (length arg))
      (define (mkarg i) ((outward-argument-location cc) 'nontail argcount i))
@@ -88,10 +89,10 @@
 		  (acc '() (cons `(move-word ,(mkarg i) ,(car arg))
 				 acc)))
 		 ((null? arg) (reverse acc)))
-	     (list `(call ,(preg 'rax) ,label ,(map mkarg (iota argcount))))
-	     (map (lambda (name) `(move-word ,(preg name) ,(junk))) killed-regs)
-	     (map (lambda (name) `(use ,(preg name))) killed-regs)
-	     (list `(move-word ,target ,(preg 'rax))))]
+	     (list `(call ,(preg 'rax #f) ,label ,(map mkarg (iota argcount))))
+	     (map (lambda (name) `(move-word ,(preg name #f) ,(junk))) killed-regs)
+	     (map (lambda (name) `(use ,(preg name #f))) killed-regs)
+	     (list `(move-word ,target ,(preg 'rax #f))))]
     [`(tailcall ,label (,arg ...))
      (define argcount (length arg))
      (define (mkarg i) ((outward-argument-location cc) 'tail argcount i))
@@ -100,8 +101,8 @@
 		  (acc '() (cons `(move-word ,(mkarg i) ,(car arg))
 				 acc)))
 		 ((null? arg) (reverse acc)))
-             (map (lambda (loc name) `(move-word ,(preg name) ,loc)) saved-locs saved-regs)
-             ;;(map (lambda (name) `(use ,(preg name))) saved-regs)
+             (map (lambda (loc name) `(move-word ,(preg name #f) ,loc)) saved-locs saved-regs)
+             ;;(map (lambda (name) `(use ,(preg name #f))) saved-regs)
 	     (list `(tailcall ,label ,(map mkarg (iota argcount)))))]
     [`(,(and op (or 'store-word 'store-byte)) ,target ,source)
      (define rt (if (non-reg? target) (fresh-reg) target))
@@ -116,8 +117,8 @@
 	   `(wshift ,op ,target ,target ,(lit m)))]
     [`(wshift ,op ,(? reg-or-preg? target) ,n ,shift-amount)
      (list `(move-word ,target ,n)
-	   `(move-word ,(preg 'rcx) ,shift-amount)
-	   `(wshift ,op ,target ,target ,(preg 'rcx)))]
+	   `(move-word ,(preg 'rcx #f) ,shift-amount)
+	   `(wshift ,op ,target ,target ,(preg 'rcx #f)))]
     [i
      (list i)]))
 
@@ -129,7 +130,7 @@
   ;; register-saving instrs. Little practical evidence either way at
   ;; present, and I haven't thought the question through to see if in
   ;; theory it should behave better one way or the other.
-  (append (map (lambda (loc name) `(move-word ,loc ,(preg name))) saved-locs saved-regs)
+  (append (map (lambda (loc name) `(move-word ,loc ,(preg name #f))) saved-locs saved-regs)
 	  (append-map expander init-arg-instrs)
 	  (append-map expander instrs)))
 
@@ -169,13 +170,13 @@
 		(define r (fresh-reg))
 		(list `(move-word ,r ,m)
 		      `(compare/jmp ,cmpop ,target ,n ,r))]
-	       [`(,(and op (or 'load-word 'load-byte)) ,(temporary n) ,source ,offset)
+	       [`(,(and op (or 'load-word 'load-byte)) ,(temporary n var) ,source ,offset)
 		(define r (fresh-reg))
 		(list `(,op ,r ,source ,offset)
-		      `(move-word ,(temporary n) ,r))]
-	       [`(,(and op (or 'store-word 'store-byte)) ,target ,(temporary n))
+		      `(move-word ,(temporary n var) ,r))]
+	       [`(,(and op (or 'store-word 'store-byte)) ,target ,(temporary n var))
 		(define r (fresh-reg))
-		(list `(move-word ,r ,(temporary n))
+		(list `(move-word ,r ,(temporary n var))
 		      `(,op ,target ,r))]
                [`(call ,target ,(? memory-location? proc) ,args)
                 (define r (fresh-reg))
@@ -203,33 +204,33 @@
 (define ((assemble-instr xs sp-delta) i)
   (match i
     [`(move-word ,target ,source)			(*mov (xs source) (xs target))]
-    [`(load-word ,(preg target) ,(preg source) ,ofs)	(*mov (@reg source ofs) target)]
-    [`(load-byte ,(preg target) ,(preg source) ,ofs)	(*movz (@reg source ofs) target)]
-    [`(load-word ,(preg target) ,(lit n) ,ofs)		(*mov (@imm (+ n ofs)) target)]
-    [`(load-byte ,(preg target) ,(lit n) ,ofs)		(*movz (@imm (+ n ofs)) target)]
-    [`(store-word ,(preg target) ,(preg source))	(*mov source (@reg target 0))]
-    [`(store-byte ,(preg target) ,(preg source))	(*mov source (@reg target 0) #t)]
+    [`(load-word ,(preg target _) ,(preg source _) ,o)	(*mov (@reg source o) target)]
+    [`(load-byte ,(preg target _) ,(preg source _) ,o)	(*movz (@reg source o) target)]
+    [`(load-word ,(preg target _) ,(lit n) ,ofs)	(*mov (@imm (+ n ofs)) target)]
+    [`(load-byte ,(preg target _) ,(lit n) ,ofs)	(*movz (@imm (+ n ofs)) target)]
+    [`(store-word ,(preg target _) ,(preg source _))	(*mov source (@reg target 0))]
+    [`(store-byte ,(preg target _) ,(preg source _))	(*mov source (@reg target 0) #t)]
     [`(w+ ,target ,target ,source)			(*op 'add (xs source) (xs target))]
     [`(w- ,target ,target ,source)			(*op 'sub (xs source) (xs target))]
     [`(w* ,target ,target ,source)			(*imul (xs source) (xs target))]
-    [`(w*/extended ,(preg 'rdx) ,(preg 'rax) ,(preg 'rax) ,(preg r))
+    [`(w*/extended ,(preg 'rdx _) ,(preg 'rax _) ,(preg 'rax _) ,(preg r _))
      (*imul/extended r)]
     [`(wand ,target ,target ,source)			(*op 'and (xs source) (xs target))]
     [`(wor ,target ,target ,source)			(*op 'or (xs source) (xs target))]
     [`(wxor ,target ,target ,source)			(*op 'xor (xs source) (xs target))]
-    [`(wdiv ,(preg 'rax) ,(preg 'rax) ,(preg r))	(*div r)]
-    [`(wmod ,(preg 'rax) ,(preg 'rax) ,(preg r))	(*div r)]
+    [`(wdiv ,(preg 'rax _) ,(preg 'rax _) ,(preg r _))	(*div r)]
+    [`(wmod ,(preg 'rax _) ,(preg 'rax _) ,(preg r _))	(*div r)]
     [`(wshift ,op ,target ,target ,amount)		(case op
 							  [(<<) (*shl (xs amount) (xs target))]
 							  [(>>u) (*shr (xs amount) (xs target))]
 							  [(>>s) (*sar (xs amount) (xs target))])]
-    [`(compare/set ,cmpop ,(preg 'rax) ,(? lit? n) ,(? lit? m))
+    [`(compare/set ,cmpop ,(preg 'rax _) ,(? lit? n) ,(? lit? m))
      (*mov (evaluate-cmpop cmpop (lit-val n) (lit-val m)) 'rax)]
     [`(compare/jmp ,cmpop ,(label tag) ,(? lit? n) ,(? lit? m))
      (if (not (zero? (evaluate-cmpop cmpop (lit-val n) (lit-val m))))
          (*jmp (label-reference tag))
          '())]
-    [`(compare/set ,cmpop ,(preg 'rax) ,s1 ,s2)
+    [`(compare/set ,cmpop ,(preg 'rax _) ,s1 ,s2)
      (comparison-code cmpop (xs s1) (xs s2)
 		      (lambda (cc)
 			(list (*setcc-rax cc))))]
@@ -239,18 +240,18 @@
 			(list (*jmp-cc cc (label-reference tag)))))]
     [(label tag)					(label-anchor tag)]
     [`(jmp ,(label tag))				(*jmp (label-reference tag))]
-    [`(ret ,(preg 'rax))
+    [`(ret ,(preg 'rax _))
      (list (if (zero? sp-delta) '() (*op 'add sp-delta 'rsp))
 	   (*ret))]
-    [`(call ,(preg 'rax) ,target ,_)
+    [`(call ,(preg 'rax _) ,target ,_)
      (*call (match target
 	      [(label tag) (label-reference tag)]
-	      [(preg r) r]))]
+	      [(preg r _) r]))]
     [`(tailcall ,target ,args)
      (list (if (zero? sp-delta) '() (*op 'add sp-delta 'rsp))
 	   (*jmp (match target
 		   [(label tag) (label-reference tag)]
-		   [(preg r) r])))]
+		   [(preg r _) r])))]
     [_ (error 'assemble-instr "Cannot assemble ~v" i)]))
 
 (define ((assemble-instr* xs sp-delta) i)
