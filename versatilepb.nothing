@@ -89,7 +89,7 @@
 
 (define (interrupt:irq)
   ;; (puts (data #"interrupt:irq\n\0"))
-  (? (+ vic0 vic-address)) ;; dummy read -- see vic-nonvectored-irq-status
+  (?volatile (+ vic0 vic-address)) ;; dummy read -- see vic-nonvectored-irq-status
   (sys:set-spsr (binor (sys:get-spsr) #xc0)) ;; disable interrupts when we return from this handler.
   ;; ^ we do this because we don't know which interrupt caused us
   ;; here, so we can't clear the condition and will loop forever.

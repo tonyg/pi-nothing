@@ -165,9 +165,16 @@
      (translate-exp tail? dest exp env)]
 
     [`(begin ,exp ,exps ...)
-     (seq ([v (translate-exp #f (void) exp env)])
+     (seq ([v (translate-exp #f (junk) exp env)])
 	  (translate-exp tail? dest `(begin ,@exps) env))]
 
+    [`(?volatile ,exp)
+     (define temp-reg (fresh-reg))
+     (seq ([v (translate-exp #f (fresh-reg) exp env)])
+	  (snip dest
+                `(load-word ,temp-reg ,v 0)
+                `(use ,temp-reg)
+                `(move-word ,dest ,temp-reg)))]
     [`(? ,exp)
      (seq ([v (translate-exp #f (fresh-reg) exp env)])
 	  (snip dest `(load-word ,dest ,v 0)))]
