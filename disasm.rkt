@@ -104,7 +104,7 @@
     (define addr (string->number (substring line 0 16) 16))
     (define maybe-anchor (and addr (hash-ref addr-map addr #f)))
     (when maybe-anchor (printf "\n~a:\n" maybe-anchor))
-    (define maybe-ref (let ((m (regexp-match #px"0x([0-9a-fA-F]+)" line)))
+    (define maybe-ref (let ((m (regexp-match #px".*0x([0-9a-fA-F]+)" line)))
                         (and m
                              (hash-ref addr-map (string->number (cadr m) 16) #f))))
     (if maybe-ref
