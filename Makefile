@@ -67,3 +67,10 @@ clean-examples:
 	racket exec-elf.rkt -a i386 $* 2>&1 | tee $*.i386.log
 %.x86_64.elf: %.nothing
 	racket exec-elf.rkt -a x86_64 $* 2>&1 | tee $*.x86_64.log
+
+test-elf-hash: elf-hash
+	./elf-hash 100000 | racket elf-hash.rkt
+	rm -f elf-hash
+
+elf-hash: elf-hash.c
+	gcc -O3 -o $@ $<
