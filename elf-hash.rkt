@@ -2,6 +2,7 @@
 
 (provide elf-hash)
 
+;; Per the SYSV ELF specification.
 (define (elf-hash symbol-bytes)
   (for/fold [(h 0)] [(b (in-bytes symbol-bytes))]
     (let* ((h (bitwise-and #xffffffff (+ (arithmetic-shift h 4) b)))
@@ -11,6 +12,8 @@
                        h
                        (bitwise-xor h (bitwise-and #xff (arithmetic-shift g -24))))
                    (bitwise-not g)))))
+
+;;---------------------------------------------------------------------------
 
 (module+ main
   (require racket/match)

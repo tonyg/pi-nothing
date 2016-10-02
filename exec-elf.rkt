@@ -125,7 +125,7 @@
   ;; It looks like (on my Linux systems, at least) program images are
   ;; usually loaded into core at 0x400000, so we do the same here.
   (define origin-addr #x0000000000400000)
-  (define start-offset #x80) ;; need to skip past the ELF header.
+  (define start-offset #x1000) ;; need to skip past the ELF header.
   (define start-addr (+ origin-addr start-offset))
 
   (define md (match arch
