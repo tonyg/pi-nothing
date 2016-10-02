@@ -364,15 +364,6 @@
                   ((segment-flags->number flags) :: little-endian bits 32)
                   (align :: little-endian bits 32))))
 
-;; TODO: remove
-(define (padding-for-header who header start-offset)
-  (define padding-size (- start-offset (bit-string-byte-count header)))
-  (when (negative? padding-size)
-    (error who "Start offset ~v too small for header size ~v"
-           start-offset
-           (bit-string-byte-count header)))
-  (make-bytes padding-size 0))
-
 (define (elf32-executable #:image image
                           #:machine machine
                           #:origin origin-addr
@@ -381,48 +372,27 @@
                           #:memsize [memsize (bytes-length image)])
   (define start-addr (+ origin-addr start-offset))
   (define header
-    (bit-string ;; Elf32_Ehdr
-                #x7f
-		(#"ELF" :: binary)
-
-		1  ;; EI_CLASS - 32 bit (1 = 32 bit, 2 = 64 bit)
-		1  ;; EI_DATA - ELFDATA2LSB = 1
-		1  ;; EI_VERSION - EV_CURRENT = 1
-		0  ;; EI_OSABI - ELFOSABI_SYSV (aka ELFOSABI_NONE) = 0
-		0  ;; EI_ABIVERSION - should contain 0
-		0 0 0 0 0 0 0 ;; EI_PAD
-
-		(2 :: little-endian bits 16) ;; e_type - ET_EXEC = 2
-		((machine->machine-id machine) :: little-endian bits 16)
-
-		(1 :: little-endian bits 32) ;; e_version - EV_CURRENT = 1
-
-		(start-addr :: little-endian bits 32) ;; e_entry
-		(52 :: little-endian bits 32) ;; e_phoff - offset relative to start of file
-		(0 :: little-endian bits 32)  ;; e_shoff
-
-		(e_flags :: little-endian bits 32) ;; e_flags
-
-		(52 :: little-endian bits 16) ;; e_ehsize
-		(32 :: little-endian bits 16) ;; e_phentsize
-		(1 :: little-endian bits 16)  ;; e_phnum
-		(40 :: little-endian bits 16) ;; e_shentsize
-		(0 :: little-endian bits 16)  ;; e_shnum
-		(0 :: little-endian bits 16)  ;; e_shstrndx
-
-		;; 52 bytes in
-
-		;; Elf32_Phdr
-		((segment-type->id 'load) :: little-endian bits 32) ;; p_type - PT_LOAD = 1
-		(0 :: little-endian bits 32) ;; p_offset
-		(origin-addr :: little-endian bits 32) ;; p_vaddr
-		(origin-addr :: little-endian bits 32) ;; p_paddr
-		((+ start-offset (bytes-length image)) :: little-endian bits 32) ;; p_filesz
-		((+ start-offset memsize) :: little-endian bits 32) ;; p_memsz
-		(7 :: little-endian bits 32) ;; p_flags - PT_R=4 | PT_W=2 | PT_X=1 --> 7
-		(#x1000 :: little-endian bits 32)  ;; p_align
-		))
-  (define padding (padding-for-header 'elf32-executable header start-offset))
+    (bit-string-append (elf-header #:elf64? #f
+                                   #:machine machine
+                                   #:entry start-addr
+                                   #:e_flags e_flags
+                                   #:segment-count 1)
+                       (elf-segment->program-header
+                        (elf-segment 'load
+                                     '(r w x)
+                                     start-offset
+                                     start-addr
+                                     #f
+                                     (bytes-length image)
+                                     memsize
+                                     #x1000)
+                        #:elf64? #f)))
+  (define padding-size (- start-offset (bit-string-byte-count header)))
+  (when (negative? padding-size)
+    (error 'elf32-executable "Start offset ~v too small for header size ~v"
+           start-offset
+           (bit-string-byte-count header)))
+  (define padding (make-bytes padding-size 0))
   (bit-string->bytes (bit-string (header :: binary)
                                  (padding :: binary)
                                  (image :: binary))))
@@ -445,6 +415,78 @@
   (define addr (+ table-base (* (if elf64? 8 4) slot-index)))
   (define index (lookup-symbol-index symbols name library-name symbol-type))
   (elf-relocation addr relocation-type index 0))
+
+(define (elf-header #:elf64? elf64?
+                    #:machine machine
+                    #:entry entry
+                    #:e_flags e_flags
+                    #:segment-count segment-count)
+  (if elf64?
+      (bit-string ;; Elf64_Ehdr
+                  #x7f
+                  (#"ELF" :: binary)
+
+                  2  ;; EI_CLASS - 64 bit (1 = 32 bit, 2 = 64 bit)
+                  1  ;; EI_DATA - ELFDATA2LSB = 1
+                  1  ;; EI_VERSION - EV_CURRENT = 1
+                  0  ;; EI_OSABI - ELFOSABI_SYSV (aka ELFOSABI_NONE) = 0
+                  0  ;; EI_ABIVERSION - should contain 0
+                  0 0 0 0 0 0 0 ;; EI_PAD
+
+                  (2 :: little-endian bits 16) ;; e_type - ET_EXEC = 2
+                  ((machine->machine-id machine) :: little-endian bits 16)
+
+                  (1 :: little-endian bits 32) ;; e_version - EV_CURRENT = 1
+
+                  (entry :: little-endian bits 64) ;; e_entry
+                  (64 :: little-endian bits 64) ;; e_phoff
+                  (0 :: little-endian bits 64)  ;; e_shoff
+
+                  (e_flags :: little-endian bits 32) ;; e_flags
+
+                  (64 :: little-endian bits 16) ;; e_ehsize
+                  ((elf-phentsize #:elf64? elf64?) :: little-endian bits 16) ;; e_phentsize
+                  (segment-count :: little-endian bits 16)  ;; e_phnum
+                  ((elf-shentsize #:elf64? elf64?) :: little-endian bits 16) ;; e_shentsize
+                  (0 :: little-endian bits 16)  ;; e_shnum
+                  (0 :: little-endian bits 16)  ;; e_shstrndx
+
+                  ;; 64 bytes in
+                  )
+      (bit-string ;; Elf32_Ehdr
+                  #x7f
+                  (#"ELF" :: binary)
+
+                  1  ;; EI_CLASS - 32 bit (1 = 32 bit, 2 = 64 bit)
+                  1  ;; EI_DATA - ELFDATA2LSB = 1
+                  1  ;; EI_VERSION - EV_CURRENT = 1
+                  0  ;; EI_OSABI - ELFOSABI_SYSV (aka ELFOSABI_NONE) = 0
+                  0  ;; EI_ABIVERSION - should contain 0
+                  0 0 0 0 0 0 0 ;; EI_PAD
+
+                  (2 :: little-endian bits 16) ;; e_type - ET_EXEC = 2
+                  ((machine->machine-id machine) :: little-endian bits 16)
+
+                  (1 :: little-endian bits 32) ;; e_version - EV_CURRENT = 1
+
+                  (entry :: little-endian bits 32) ;; e_entry
+                  (52 :: little-endian bits 32) ;; e_phoff - offset relative to start of file
+                  (0 :: little-endian bits 32)  ;; e_shoff
+
+                  (e_flags :: little-endian bits 32) ;; e_flags
+
+                  (52 :: little-endian bits 16) ;; e_ehsize
+                  ((elf-phentsize #:elf64? elf64?) :: little-endian bits 16) ;; e_phentsize
+                  (segment-count :: little-endian bits 16)  ;; e_phnum
+                  ((elf-shentsize #:elf64? elf64?) :: little-endian bits 16) ;; e_shentsize
+                  (0 :: little-endian bits 16)  ;; e_shnum
+                  (0 :: little-endian bits 16)  ;; e_shstrndx
+
+                  ;; 52 bytes in
+                  )))
+
+(define (elf-phentsize #:elf64? elf64?) (if elf64? 56 32))
+(define (elf-shentsize #:elf64? elf64?) (if elf64? 64 40))
 
 (define (elf64-executable #:image image
                           #:machine machine
@@ -558,46 +600,18 @@
                                start-offset (+ origin-addr start-offset) #f
                                (bytes-length image) memsize #x1000))))
 
-  (define phentsize 56) ;; TODO: compute
-
   (define header (make-emitter 0))
 
-  (emit-raw-blob! header (bit-string ;; Elf64_Ehdr
-                          #x7f
-                          (#"ELF" :: binary)
-
-                          2  ;; EI_CLASS - 64 bit (1 = 32 bit, 2 = 64 bit)
-                          1  ;; EI_DATA - ELFDATA2LSB = 1
-                          1  ;; EI_VERSION - EV_CURRENT = 1
-                          0  ;; EI_OSABI - ELFOSABI_SYSV (aka ELFOSABI_NONE) = 0
-                          0  ;; EI_ABIVERSION - should contain 0
-                          0 0 0 0 0 0 0 ;; EI_PAD
-
-                          (2 :: little-endian bits 16) ;; e_type - ET_EXEC = 2
-                          ((machine->machine-id machine) :: little-endian bits 16)
-
-                          (1 :: little-endian bits 32) ;; e_version - EV_CURRENT = 1
-
-                          ((+ origin-addr start-offset) :: little-endian bits 64) ;; e_entry
-                          (64 :: little-endian bits 64) ;; e_phoff
-                          (0 :: little-endian bits 64)  ;; e_shoff
-
-                          (e_flags :: little-endian bits 32) ;; e_flags
-
-                          (64 :: little-endian bits 16) ;; e_ehsize
-                          (phentsize :: little-endian bits 16) ;; e_phentsize
-                          ((length segments) :: little-endian bits 16)  ;; e_phnum
-                          (64 :: little-endian bits 16) ;; e_shentsize
-                          (0 :: little-endian bits 16)  ;; e_shnum
-                          (0 :: little-endian bits 16)  ;; e_shstrndx
-
-                          ;; 64 bytes in
-                          ))
+  (emit-raw-blob! header (elf-header #:elf64? #t
+                                     #:machine machine
+                                     #:entry (+ origin-addr start-offset)
+                                     #:e_flags e_flags
+                                     #:segment-count (length segments)))
 
   (set! segments
         (cons (elf-segment 'phdr '(r x)
                            (emitter-offset header) (+ origin-addr (emitter-offset header)) #f
-                           (* phentsize (length segments)) #f 8)
+                           (* (elf-phentsize #:elf64? #t) (length segments)) #f 8)
               (cdr segments)))
 
   (for [(seg segments)]
