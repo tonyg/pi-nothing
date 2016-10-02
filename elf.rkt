@@ -41,8 +41,7 @@
 ;;    in this manner, and cannot be mixed together."
 
 (provide (struct-out dynamic-symbol)
-         elf32-executable
-         elf64-executable
+         elf-executable
          write-executable)
 
 (require racket/match)
@@ -205,6 +204,20 @@
     ['bind-now 24]
     [(? number? n) n]))
 
+(define (machine-elf64? machine)
+  (match machine
+    ['i386 #f]
+    ['x86_64 #t]
+    ['arm7 #f]))
+
+(define (machine-data-relocation-type machine)
+  (match machine
+    ['x86_64 'x86_64-glob_dat]))
+
+(define (machine-function-relocation-type machine)
+  (match machine
+    ['x86_64 'x86_64-jump_slot]))
+
 (define (machine->machine-id machine)
   (match machine
     ['i386 3] ;; EM_386
@@ -364,39 +377,6 @@
                   ((segment-flags->number flags) :: little-endian bits 32)
                   (align :: little-endian bits 32))))
 
-(define (elf32-executable #:image image
-                          #:machine machine
-                          #:origin origin-addr
-                          #:start-offset start-offset
-                          #:e_flags [e_flags 0]
-                          #:memsize [memsize (bytes-length image)])
-  (define start-addr (+ origin-addr start-offset))
-  (define header
-    (bit-string-append (elf-header #:elf64? #f
-                                   #:machine machine
-                                   #:entry start-addr
-                                   #:e_flags e_flags
-                                   #:segment-count 1)
-                       (elf-segment->program-header
-                        (elf-segment 'load
-                                     '(r w x)
-                                     start-offset
-                                     start-addr
-                                     #f
-                                     (bytes-length image)
-                                     memsize
-                                     #x1000)
-                        #:elf64? #f)))
-  (define padding-size (- start-offset (bit-string-byte-count header)))
-  (when (negative? padding-size)
-    (error 'elf32-executable "Start offset ~v too small for header size ~v"
-           start-offset
-           (bit-string-byte-count header)))
-  (define padding (make-bytes padding-size 0))
-  (bit-string->bytes (bit-string (header :: binary)
-                                 (padding :: binary)
-                                 (image :: binary))))
-
 (define (lookup-symbol-index symbols name library-name symbol-type)
   (for/or [(s symbols) (i (in-naturals))]
     (and (equal? (elf-symbol-name s) name)
@@ -485,20 +465,23 @@
                   ;; 52 bytes in
                   )))
 
+;; TODO: compute these
 (define (elf-phentsize #:elf64? elf64?) (if elf64? 56 32))
 (define (elf-shentsize #:elf64? elf64?) (if elf64? 64 40))
+(define (elf-relaent #:elf64? elf64?) (if elf64? 24 12))
 
-(define (elf64-executable #:image image
-                          #:machine machine
-                          #:origin origin-addr
-                          #:start-offset start-offset
-                          #:e_flags [e_flags 0]
-                          #:memsize [memsize (bytes-length image)]
-                          #:shared-data-address [shared-data-address #f]
-                          #:got-address [got-address #f]
-                          #:shared-data-symbols [shared-data-symbols '()]
-                          #:shared-function-symbols [shared-function-symbols '()]
-                          #:interpreter [interpreter #f])
+(define (elf-executable #:image image
+                        #:machine machine
+                        #:origin origin-addr
+                        #:start-offset start-offset
+                        #:e_flags [e_flags 0]
+                        #:memsize [memsize (bytes-length image)]
+                        #:shared-data-address [shared-data-address #f]
+                        #:got-address [got-address #f]
+                        #:shared-data-symbols [shared-data-symbols '()]
+                        #:shared-function-symbols [shared-function-symbols '()]
+                        #:interpreter [interpreter #f])
+  (define elf64? (machine-elf64? machine))
   (define phdr-end #x200) ;; offset to first real segment
 
   (when (or shared-data-address
@@ -507,7 +490,7 @@
             (pair? shared-function-symbols))
     ;; TODO: Could this be split into checks for just the data and just the functions?
     (when (not (and shared-data-address got-address interpreter))
-      (error 'elf64-executable
+      (error 'elf-executable
              "All of shared-data-address, got-address and interpreter are required.")))
 
   (define symbols
@@ -521,12 +504,16 @@
   (define data-relocations
     (for/list [(d shared-data-symbols)
                (i (in-naturals))]
-      (dynamic-symbol->elf-relocation d shared-data-address i symbols 'object 'x86_64-glob_dat #t)))
+      (dynamic-symbol->elf-relocation d shared-data-address i symbols 'object
+                                      (machine-data-relocation-type machine)
+                                      elf64?)))
 
   (define function-relocations
     (for/list [(d shared-function-symbols)
                (i (in-naturals 3))] ;; skip 0 and the two special entries
-      (dynamic-symbol->elf-relocation d got-address i symbols 'func 'x86_64-jump_slot #t)))
+      (dynamic-symbol->elf-relocation d got-address i symbols 'func
+                                      (machine-function-relocation-type machine)
+                                      elf64?)))
 
   (define-values (strtab strtab-index)
     (build-string-table
@@ -537,18 +524,16 @@
 
   (define interp-offset (and interpreter (emit-blob! body (bytes-append interpreter (bytes 0)) 1)))
   (define strtab-offset (emit-blob! body strtab 16))
-  (define symtab (build-symbol-table symbols strtab-index #:elf64? #t))
+  (define symtab (build-symbol-table symbols strtab-index #:elf64? elf64?))
   (define symtab-offset (emit-blob! body symtab 16))
-  (define symhash-offset (emit-blob! body
-                                     (sysv-symbol-hash-table (map elf-symbol-name symbols)
-                                                             #:elf64? #t)
-                                     16))
+  (define symhash-offset
+    (emit-blob! body (sysv-symbol-hash-table (map elf-symbol-name symbols) #:elf64? elf64?) 16))
   (define rela (build-relocation-table data-relocations
-                                       #:elf64? #t
+                                       #:elf64? elf64?
                                        #:include-addend? #t))
   (define rela-offset (emit-blob! body rela 16))
   (define jmprel (build-relocation-table function-relocations
-                                         #:elf64? #t
+                                         #:elf64? elf64?
                                          #:include-addend? #t))
   (define jmprel-offset (emit-blob! body jmprel 16))
   (define dynseg-offset
@@ -565,7 +550,7 @@
                         (elf-dyn 'rela (+ origin-addr rela-offset))
                         (elf-dyn 'relasz (bytes-length rela))
                         (elf-dyn 'relaent (if (null? data-relocations)
-                                              24 ;; TODO: compute
+                                              (elf-relaent #:elf64? elf64?)
                                               (/ (bytes-length rela) (length data-relocations)))))
                   (if shared-data-address
                       (list (elf-dyn 'jmprel (+ origin-addr jmprel-offset))
@@ -575,7 +560,7 @@
                   (if got-address
                       (list (elf-dyn 'pltgot got-address))
                       '()))
-                 #:elf64? #t)
+                 #:elf64? elf64?)
                 16))
   (define dynseg-size (- (emitter-offset body) dynseg-offset))
   (define dyndata-end (emitter-offset body))
@@ -602,7 +587,7 @@
 
   (define header (make-emitter 0))
 
-  (emit-raw-blob! header (elf-header #:elf64? #t
+  (emit-raw-blob! header (elf-header #:elf64? elf64?
                                      #:machine machine
                                      #:entry (+ origin-addr start-offset)
                                      #:e_flags e_flags
@@ -611,11 +596,11 @@
   (set! segments
         (cons (elf-segment 'phdr '(r x)
                            (emitter-offset header) (+ origin-addr (emitter-offset header)) #f
-                           (* (elf-phentsize #:elf64? #t) (length segments)) #f 8)
+                           (* (elf-phentsize #:elf64? elf64?) (length segments)) #f 8)
               (cdr segments)))
 
   (for [(seg segments)]
-    (emit-raw-blob! header (elf-segment->program-header seg #:elf64? #t)))
+    (emit-raw-blob! header (elf-segment->program-header seg #:elf64? elf64?)))
 
   (emit-padding! header phdr-end)
   (emit-raw-blob! header (emitter-buffer body))

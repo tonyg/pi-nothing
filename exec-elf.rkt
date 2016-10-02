@@ -152,21 +152,21 @@
 
   (write-executable (format "~a.~a.elf" filename-base arch)
                     (match arch
-                      ['arm7 (elf32-executable #:image linked
-                                               #:machine 'arm7
+                      ['arm7 (elf-executable #:image linked
+                                             #:machine 'arm7
+                                             #:origin origin-addr
+                                             #:start-offset start-offset
+                                             #:e_flags (+ #x80  ;; EF_ARM_NEW_ABI
+                                                          #x02) ;; EF_ARM_HASENTRY
+                                             )]
+                      ['i386 (elf-executable #:image linked
+                                             #:machine 'i386
+                                             #:origin origin-addr
+                                             #:start-offset start-offset)]
+                      ['x86_64 (elf-executable #:image linked
+                                               #:machine 'x86_64
                                                #:origin origin-addr
-                                               #:start-offset start-offset
-                                               #:e_flags (+ #x80  ;; EF_ARM_NEW_ABI
-                                                            #x02) ;; EF_ARM_HASENTRY
-                                               )]
-                      ['i386 (elf32-executable #:image linked
-                                               #:machine 'i386
-                                               #:origin origin-addr
-                                               #:start-offset start-offset)]
-                      ['x86_64 (elf64-executable #:image linked
-                                                 #:machine 'x86_64
-                                                 #:origin origin-addr
-                                                 #:start-offset start-offset)])))
+                                               #:start-offset start-offset)])))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 

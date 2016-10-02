@@ -76,15 +76,15 @@
 ;; }
 
 (write-executable "got.elf"
-                  (elf64-executable #:image linked
-                                    #:machine 'x86_64
-                                    #:origin origin-addr
-                                    #:start-offset start-offset
-                                    #:shared-data-address (lookup-label 'shared-data-top)
-                                    #:got-address (lookup-label 'got-top)
-                                    #:interpreter #"/lib64/ld-linux-x86-64.so.2"
-                                    #:shared-data-symbols
-                                    (list (dynamic-symbol #"sharedvar" #"r.so"))
-                                    #:shared-function-symbols
-                                    (list (dynamic-symbol #"exit" #"libc.so.6")
-                                          (dynamic-symbol #"addsharedvar" #"r.so"))))
+                  (elf-executable #:image linked
+                                  #:machine 'x86_64
+                                  #:origin origin-addr
+                                  #:start-offset start-offset
+                                  #:shared-data-address (lookup-label 'shared-data-top)
+                                  #:got-address (lookup-label 'got-top)
+                                  #:interpreter #"/lib64/ld-linux-x86-64.so.2"
+                                  #:shared-data-symbols
+                                  (list (dynamic-symbol #"sharedvar" #"r.so"))
+                                  #:shared-function-symbols
+                                  (list (dynamic-symbol #"exit" #"libc.so.6")
+                                        (dynamic-symbol #"addsharedvar" #"r.so"))))
