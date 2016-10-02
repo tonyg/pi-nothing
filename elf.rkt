@@ -455,17 +455,18 @@
                           #:shared-data-address [shared-data-address #f]
                           #:got-address [got-address #f]
                           #:shared-data-symbols [shared-data-symbols '()]
-                          #:shared-function-symbols [shared-function-symbols '()])
+                          #:shared-function-symbols [shared-function-symbols '()]
+                          #:interpreter [interpreter #f])
   (define phdr-end #x200) ;; offset to first real segment
-  (define interpreter #"/lib64/ld-linux-x86-64.so.2")
 
   (when (or shared-data-address
             got-address
             (pair? shared-data-symbols)
             (pair? shared-function-symbols))
     ;; TODO: Could this be split into checks for just the data and just the functions?
-    (when (not (and shared-data-address got-address))
-      (error 'elf64-executable "Both shared-data-address and got-address are required.")))
+    (when (not (and shared-data-address got-address interpreter))
+      (error 'elf64-executable
+             "All of shared-data-address, got-address and interpreter are required.")))
 
   (define symbols
     (append (for/list [(d shared-data-symbols)]
@@ -492,7 +493,7 @@
 
   (define body (make-emitter phdr-end))
 
-  (define interp-offset (emit-blob! body (bytes-append interpreter (bytes 0)) 1))
+  (define interp-offset (and interpreter (emit-blob! body (bytes-append interpreter (bytes 0)) 1)))
   (define strtab-offset (emit-blob! body strtab 16))
   (define symtab (build-symbol-table symbols strtab-index #:elf64? #t))
   (define symtab-offset (emit-blob! body symtab 16))
@@ -541,19 +542,21 @@
   (emit-raw-blob! body image)
 
   (define segments
-    (list 'phdr-placeholder
-          (elf-segment 'interp '(r)
-                       interp-offset (+ origin-addr interp-offset) #f
-                       (+ (bytes-length interpreter) 1) #f 1)
-          (elf-segment 'load '(r w)
-                       strtab-offset (+ origin-addr strtab-offset) #f
-                       (- dyndata-end strtab-offset) #f 16)
-          (elf-segment 'dynamic '(r w)
-                       dynseg-offset (+ origin-addr dynseg-offset) #f
-                       dynseg-size #f 16)
-          (elf-segment 'load '(r w x)
-                       start-offset (+ origin-addr start-offset) #f
-                       (bytes-length image) memsize #x1000)))
+    (filter values
+            (list 'phdr-placeholder
+                  (and interpreter
+                       (elf-segment 'interp '(r)
+                                    interp-offset (+ origin-addr interp-offset) #f
+                                    (+ (bytes-length interpreter) 1) #f 1))
+                  (elf-segment 'load '(r w)
+                               strtab-offset (+ origin-addr strtab-offset) #f
+                               (- dyndata-end strtab-offset) #f 16)
+                  (elf-segment 'dynamic '(r w)
+                               dynseg-offset (+ origin-addr dynseg-offset) #f
+                               dynseg-size #f 16)
+                  (elf-segment 'load '(r w x)
+                               start-offset (+ origin-addr start-offset) #f
+                               (bytes-length image) memsize #x1000))))
 
   (define phentsize 56) ;; TODO: compute
 
