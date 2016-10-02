@@ -35,6 +35,7 @@
 	 *call
 	 *jmp
 	 *jmp-cc
+	 *pushl
 	 *push
 	 *pop
 	 *lea
@@ -251,8 +252,12 @@
     ;; Short, 8-bit form: (list (bitfield 4 7 4 tttn) loc)
     (list #x0F (bitfield 4 8 4 tttn) (imm32-rel loc))))
 
-(define (*push reg)
-  (mod-r-m* 1 2 (reg-num reg)))
+(define (*pushl imm)
+  (list #x68 (imm32-abs imm)))
+
+(define (*push v)
+  (cond ((register? v) (mod-r-m* 1 2 (reg-num v)))
+        ((memory? v) (mod-r-m-64 #xFF 6 v))))
 
 (define (*pop reg)
   (mod-r-m* 1 3 (reg-num reg)))
