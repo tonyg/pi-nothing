@@ -131,48 +131,10 @@
 
 (define (relocation-type->number type)
   (match type
-    ['x86_64-none 0]
-    ['x86_64-64 1]
-    ['x86_64-pc32 2]
-    ['x86_64-got32 3]
-    ['x86_64-plt32 4]
-    ['x86_64-copy 5]
     ['x86_64-glob_dat 6]
     ['x86_64-jump_slot 7]
-    ['x86_64-relative 8]
-    ['x86_64-gotpcrel 9]
-    ['x86_64-32 10]
-    ['x86_64-32s 11]
-    ['x86_64-16 12]
-    ['x86_64-pc16 13]
-    ['x86_64-8 14]
-    ['x86_64-pc8 15]
-    ['x86_64-dtpmod64 16]
-    ['x86_64-dtpoff64 17]
-    ['x86_64-tpoff64 18]
-    ['x86_64-tlsgd 19]
-    ['x86_64-tlsld 20]
-    ['x86_64-dtpoff32 21]
-    ['x86_64-gottpoff 22]
-    ['x86_64-tpoff32 23]
-    ['x86_64-pc64 24]
-    ['x86_64-gotoff64 25]
-    ['x86_64-gotpc32 26]
-    ['x86_64-got64 27]
-    ['x86_64-gotpcrel64 28]
-    ['x86_64-gotpc64 29]
-    ['x86_64-gotplt64 30]
-    ['x86_64-pltoff64 31]
-    ['x86_64-size32 32]
-    ['x86_64-size64 33]
-    ['x86_64-gotpc32_tlsdesc 34]
-    ['x86_64-tlsdesc_call 35]
-    ['x86_64-tlsdesc 36]
-    ['x86_64-irelative 37]
-    ['x86_64-relative64 38]
-    ['x86_64-gotpcrelx 41]
-    ['x86_64-rex_gotpcrelx 42]
-    ['x86_64-num 43]
+    ['arm7-glob_dat 21]
+    ['arm7-jump_slot 22]
     [(? number? n) n]))
 
 (define (dyn-tag->number tag)
@@ -212,11 +174,13 @@
 
 (define (machine-data-relocation-type machine)
   (match machine
-    ['x86_64 'x86_64-glob_dat]))
+    ['x86_64 'x86_64-glob_dat]
+    ['arm7 'arm7-glob_dat]))
 
 (define (machine-function-relocation-type machine)
   (match machine
-    ['x86_64 'x86_64-jump_slot]))
+    ['x86_64 'x86_64-jump_slot]
+    ['arm7 'arm7-jump_slot]))
 
 (define (machine->machine-id machine)
   (match machine
