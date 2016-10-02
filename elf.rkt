@@ -40,7 +40,8 @@
 ;;    symbol table. Local and global symbols are always kept separate
 ;;    in this manner, and cannot be mixed together."
 
-(provide elf32-executable
+(provide (struct-out dynamic-symbol)
+         elf32-executable
          elf64-executable
          write-executable)
 
@@ -89,13 +90,16 @@
                      )
   #:transparent)
 
+;; (dynamic-symbol Bytes Bytes)
+(struct dynamic-symbol (name library-name) #:transparent)
+
 ;; (elf-symbol Bytes (Option Bytes) SymbolType SymbolScope SymbolSection Word Word)
 ;; where Word is written as 32 or 64 bits, depending on the output file type
 (struct elf-symbol (name needed type scope section value size) #:transparent)
 
-;; (elf-relocation Nat RelocationType Bytes (Option SignedWord))
+;; (elf-relocation Nat RelocationType Nat (Option SignedWord))
 ;; where SignedWord is written as 32 or 64 bits, depending on the output file type
-(struct elf-relocation (offset type symbol-name addend) #:transparent)
+(struct elf-relocation (offset type symbol-index addend) #:transparent)
 
 ;; (elf-dyn DynTag Word)
 ;; where Word is written as 32 or 64 bits, depending on the output file type
@@ -292,16 +296,16 @@
                   ((section->number section) :: little-endian bits 16))))
 
 ;; (Listof ElfReloc) (Hash Bytes Nat) #:elf64? Boolean #:include-addend? Boolean
-(define (build-relocation-table relocs strtab-index
+(define (build-relocation-table relocs
                                 #:elf64? elf64?
                                 #:include-addend? include-addend?)
   (bit-string->bytes
    (apply bit-string-append
           (for/list [(reloc (in-list relocs))]
-            (elf-relocation->bit-string reloc strtab-index elf64? include-addend?)))))
+            (elf-relocation->bit-string reloc elf64? include-addend?)))))
 
-(define (elf-relocation->bit-string reloc strtab-index elf64? include-addend?)
-  (match-define (elf-relocation offset type symbol-name addend) reloc)
+(define (elf-relocation->bit-string reloc elf64? include-addend?)
+  (match-define (elf-relocation offset type symbol-index addend) reloc)
   (when (or (and include-addend? (not addend))
             (and addend (not include-addend?)))
     (error 'elf-relocation->bit-string
@@ -309,15 +313,14 @@
            (if include-addend? "required" "forbidden")
            (if addend "present" "missing")
            reloc))
-  (define symbol-number (hash-ref strtab-index symbol-name))
   (define rel
     (if elf64?
         (bit-string (offset :: little-endian bits 64)
                     ((relocation-type->number type) :: little-endian bits 32)
-                    (symbol-number :: little-endian bits 32))
+                    (symbol-index :: little-endian bits 32))
         (bit-string (offset :: little-endian bits 32)
                     ((relocation-type->number type) :: little-endian bits 8)
-                    (symbol-number :: little-endian bits 24))))
+                    (symbol-index :: little-endian bits 24))))
   (define a
     (cond [(not addend) (bit-string)]
           [elf64?       (bit-string (addend :: little-endian bits 64))]
@@ -424,17 +427,63 @@
                                  (padding :: binary)
                                  (image :: binary))))
 
+(define (lookup-symbol-index symbols name library-name symbol-type)
+  (for/or [(s symbols) (i (in-naturals))]
+    (and (equal? (elf-symbol-name s) name)
+         (equal? (elf-symbol-needed s) library-name)
+         (equal? (elf-symbol-type s) symbol-type)
+         (+ i 1)))) ;; The 0th symbol is the empty symbol
+
+(define (dynamic-symbol->elf-relocation d
+                                        table-base
+                                        slot-index
+                                        symbols
+                                        symbol-type
+                                        relocation-type
+                                        elf64?)
+  (match-define (dynamic-symbol name library-name) d)
+  (define addr (+ table-base (* (if elf64? 8 4) slot-index)))
+  (define index (lookup-symbol-index symbols name library-name symbol-type))
+  (elf-relocation addr relocation-type index 0))
+
 (define (elf64-executable #:image image
                           #:machine machine
                           #:origin origin-addr
                           #:start-offset start-offset
                           #:e_flags [e_flags 0]
-                          #:memsize [memsize (bytes-length image)])
+                          #:memsize [memsize (bytes-length image)]
+                          #:shared-data-address [shared-data-address #f]
+                          #:got-address [got-address #f]
+                          #:shared-data-symbols [shared-data-symbols '()]
+                          #:shared-function-symbols [shared-function-symbols '()])
   (define phdr-end #x200) ;; offset to first real segment
   (define interpreter #"/lib64/ld-linux-x86-64.so.2")
 
-  (define symbols (list))
-  (define relocations (list))
+  (when (or shared-data-address
+            got-address
+            (pair? shared-data-symbols)
+            (pair? shared-function-symbols))
+    ;; TODO: Could this be split into checks for just the data and just the functions?
+    (when (not (and shared-data-address got-address))
+      (error 'elf64-executable "Both shared-data-address and got-address are required.")))
+
+  (define symbols
+    (append (for/list [(d shared-data-symbols)]
+              (match-define (dynamic-symbol name library-name) d)
+              (elf-symbol name library-name 'object 'global 0 0 0))
+            (for/list [(d shared-function-symbols)]
+              (match-define (dynamic-symbol name library-name) d)
+              (elf-symbol name library-name 'func 'global 0 0 0))))
+
+  (define data-relocations
+    (for/list [(d shared-data-symbols)
+               (i (in-naturals))]
+      (dynamic-symbol->elf-relocation d shared-data-address i symbols 'object 'x86_64-glob_dat #t)))
+
+  (define function-relocations
+    (for/list [(d shared-function-symbols)
+               (i (in-naturals 3))] ;; skip 0 and the two special entries
+      (dynamic-symbol->elf-relocation d got-address i symbols 'func 'x86_64-jump_slot #t)))
 
   (define-values (strtab strtab-index)
     (build-string-table
@@ -451,10 +500,14 @@
                                      (sysv-symbol-hash-table (map elf-symbol-name symbols)
                                                              #:elf64? #t)
                                      16))
-  (define rela (build-relocation-table relocations strtab-index
+  (define rela (build-relocation-table data-relocations
                                        #:elf64? #t
                                        #:include-addend? #t))
   (define rela-offset (emit-blob! body rela 16))
+  (define jmprel (build-relocation-table function-relocations
+                                         #:elf64? #t
+                                         #:include-addend? #t))
+  (define jmprel-offset (emit-blob! body jmprel 16))
   (define dynseg-offset
     (emit-blob! body
                 (build-dynamic-segment
@@ -468,10 +521,17 @@
                         (elf-dyn 'hash (+ origin-addr symhash-offset))
                         (elf-dyn 'rela (+ origin-addr rela-offset))
                         (elf-dyn 'relasz (bytes-length rela))
-                        (elf-dyn 'relaent (if (null? relocations)
+                        (elf-dyn 'relaent (if (null? data-relocations)
                                               24 ;; TODO: compute
-                                              (/ (bytes-length rela) (length relocations))))
-                        (elf-dyn 'bind-now 0)))
+                                              (/ (bytes-length rela) (length data-relocations)))))
+                  (if shared-data-address
+                      (list (elf-dyn 'jmprel (+ origin-addr jmprel-offset))
+                            (elf-dyn 'pltrel (dyn-tag->number 'rela))
+                            (elf-dyn 'pltrelsz (bytes-length jmprel)))
+                      '())
+                  (if got-address
+                      (list (elf-dyn 'pltgot got-address))
+                      '()))
                  #:elf64? #t)
                 16))
   (define dynseg-size (- (emitter-offset body) dynseg-offset))
