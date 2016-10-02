@@ -81,10 +81,10 @@
     ((r9) 9)
     ((r10) 10)
     ((r11) 11)
-    ((r12) 12)
-    ((r13 sp) 13)
-    ((r14 lr) 14)
-    ((r15 pc) 15)
+    ((r12 ip) 12) ;; "Intra procedure call scratch register". Used with dynamic linking
+    ((r13 sp) 13) ;; "Stack pointer".
+    ((r14 lr) 14) ;; "Link register".
+    ((r15 pc) 15) ;; "Program counter".
     (else (error 'reg-num "Invalid register ~v" reg))))
 
 (define (condition-code-num cc)
