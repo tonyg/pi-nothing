@@ -17,6 +17,7 @@
 ;; along with pi-nothing. If not, see <http://www.gnu.org/licenses/>.
 
 (require "asm-x86-common.rkt")
+(require "linker.rkt")
 
 (provide (all-from-out "asm-x86-common.rkt")
 
@@ -190,7 +191,8 @@
 		(imm32-if (= w-bit 1) source))))
      ((memory? source)
       (cond
-       ((and (@imm? source) (not (fourbyte-immediate? (@imm-address source))))
+       ((and (@imm? source) (not (or (label-reference? (@imm-address source))
+                                     (fourbyte-immediate? (@imm-address source)))))
 	(if (register=? target 'rax)
 	    ;; special alternate encoding
 	    (list (rex reg-num 1 0 0 0)
