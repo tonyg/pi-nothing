@@ -50,7 +50,18 @@
 			       0))
 
 (define killed-regs '(r0 r1 r2 r3 lr))
-(define saved-regs '(r4 r5 r6 r7 r8 r9 r10 r11 lr))
+
+;; Reversed so that, via trapeze-act, when we store regs in temps, we
+;; happen to place ascending register-numbers in adjacent cells in
+;; memory, potentially enabling the use of LDM and STM instructions to
+;; transfer the whole bunch at once. There are some sticky points: lr
+;; seems not to play nicely with this (why?), and there's a certain
+;; amount of sp-shuffling involved which isn't easy to get rid of
+;; without some ARM-specific peephole optimizations (!).
+;;
+;; See `compress-ldm-stm` below.
+;;
+(define saved-regs (reverse '(r4 r5 r6 r7 r8 r9 r10 r11 lr)))
 
 (define available-regs (map (lambda (r) (preg r #f))
                             (append (reverse saved-regs)
@@ -400,22 +411,77 @@
   ;; (flush-output)
   (values icode idata))
 
+(define (compress-ldm-stm xs orig-instrs code-rev data-rev k-normal-instrs)
+  (k-normal-instrs orig-instrs code-rev data-rev))
+
+;; ;; DISABLED for now; seems to work ok, but it's hard to tell (with the
+;; ;; simple test cases I have) whether it makes much of a difference.
+;; ;;
+;; (define (compress-ldm-stm xs orig-instrs code-rev data-rev k-normal-instrs)
+;;   (let loop ((kind #f)
+;;              (reglist '())
+;;              (prev-reg-num #f)
+;;              (offset #f)
+;;              (instrs orig-instrs))
+;;     (log-info "~v" `(loop ,kind ,reglist ,prev-reg-num ,offset ,(and (pair? instrs) (car instrs))))
+;;     (match instrs
+;;       [(cons `(move-word ,(temporary n _) ,(preg source-reg _)) rest)
+;;        #:when (and (or (not kind) (eq? kind 'stm))
+;;                    (or (not prev-reg-num) (< (reg-num source-reg) prev-reg-num))
+;;                    (or (not offset) (= n (- offset 1))))
+;;        (loop 'stm (cons source-reg reglist) (reg-num source-reg) n rest)]
+;;       [(cons `(move-word ,(preg source-reg _) ,(temporary n _)) rest)
+;;        #:when (and (or (not kind) (eq? kind 'ldm))
+;;                    (or (not prev-reg-num) (< (reg-num source-reg) prev-reg-num))
+;;                    (or (not offset) (= n (- offset 1))))
+;;        (loop 'ldm (cons source-reg reglist) (reg-num source-reg) n rest)]
+;;       [_
+;;        (if (> (length reglist) 1)
+;;            (match* (kind (xs (temporary offset #f)))
+;;              [('stm (@reg 'sp op delta0))
+;;               (define delta (match op ['+ delta0] ['- (- delta0)]))
+;;               (define topdelta (+ delta (* (length reglist) 4)))
+;;               (k-normal-instrs
+;;                instrs
+;;                (cons (list ((if (positive? topdelta) *add *sub) 'al 0 'sp 'sp (abs topdelta))
+;;                            (*push 'al reglist)
+;;                            ((if (positive? delta) *sub *add) 'al 0 'sp 'sp (abs delta)))
+;;                      code-rev)
+;;                data-rev)]
+;;              [('ldm (@reg 'sp op delta0))
+;;               (define delta (match op ['+ delta0] ['- (- delta0)]))
+;;               (define topdelta (+ delta (* (length reglist) 4)))
+;;               (k-normal-instrs
+;;                instrs
+;;                (cons (list ((if (positive? delta) *add *sub) 'al 0 'sp 'sp (abs delta))
+;;                            (*pop 'al reglist)
+;;                            ((if (positive? topdelta) *sub *add) 'al 0 'sp 'sp (abs topdelta)))
+;;                      code-rev)
+;;                data-rev)])
+;;            (k-normal-instrs orig-instrs code-rev data-rev))])))
+
 (define (assemble inward-arg-count most-tail-args temp-count leaf? instrs)
   (define xs (make-location-resolver cc inward-arg-count most-tail-args temp-count leaf?))
   (define sp-delta (if leaf? 0 (compute-sp-delta cc most-tail-args temp-count)))
   (let loop ((instrs instrs)
 	     (code-rev '())
 	     (data-rev '()))
-    (match instrs
-      ['() (values (list (if (zero? sp-delta) '() (*sub 'al 0 'sp 'sp sp-delta))
-			 (reverse code-rev))
-		   (reverse data-rev))]
-      [(cons instr rest)
-       (define-values (icode idata)
-	 ((assemble-instr* xs sp-delta) instr))
-       (loop rest
-	     (cons icode code-rev)
-	     (cons idata data-rev))])))
+    (compress-ldm-stm
+     xs
+     instrs
+     code-rev
+     data-rev
+     (lambda (instrs code-rev data-rev)
+       (match instrs
+         ['() (values (list (if (zero? sp-delta) '() (*sub 'al 0 'sp 'sp sp-delta))
+                            (reverse code-rev))
+                      (reverse data-rev))]
+         [(cons instr rest)
+          (define-values (icode idata)
+            ((assemble-instr* xs sp-delta) instr))
+          (loop rest
+                (cons icode code-rev)
+                (cons idata data-rev))])))))
 
 (define machine-arm7
   (machine-description 'arm7
