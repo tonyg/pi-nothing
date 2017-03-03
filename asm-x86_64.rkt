@@ -302,7 +302,7 @@
 (define (*mulsd source target)  (sse-sd-op #xF2 #x59 target source))
 ;;        cvtsd2ss                              #x5A
 ;;        cvtdq2sd??                            #x5B
-(define (*subsd source target)  (sse-sd-op #xF2 #X5C target source))
+(define (*subsd source target)  (sse-sd-op #xF2 #x5C target source))
 (define (*minsd source target)  (sse-sd-op #xF2 #x5D target source))
 (define (*divsd source target)  (sse-sd-op #xF2 #x5E target source))
 (define (*maxsd source target)  (sse-sd-op #xF2 #x5F target source))
