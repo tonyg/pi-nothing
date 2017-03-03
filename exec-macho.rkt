@@ -283,10 +283,11 @@
   (let ((bs (compile-file (string-append filename-base".nothing"))))
     (write-image filename-base bs)))
 
-(require racket/cmdline)
-(file-stream-buffer-mode (current-output-port) 'none)
-(compile-and-link
- (command-line
-  #:program "exec-macho.rkt"
-  #:args (base-filename)
-  base-filename))
+(module+ main
+  (require racket/cmdline)
+  (file-stream-buffer-mode (current-output-port) 'none)
+  (compile-and-link
+   (command-line
+    #:program "exec-macho.rkt"
+    #:args (base-filename)
+    base-filename)))

@@ -343,20 +343,21 @@
         (write-trailer))
       #:exists 'replace)))
 
-(require racket/cmdline)
-(file-stream-buffer-mode (current-output-port) 'none)
-(compile-and-link
- (command-line
-  #:program "main-arm.rkt"
-  #:once-each
-  [("-o" "--output") f
-   "Set output filename (default: INPUT.img)"
-   (output-file f)]
-  ["--start" addr-str
-   "Set start address"
-   (start-addr (string->number addr-str))]
-  ["--stack" addr-str
-   "Set stack origin"
-   (stack-origin (string->number addr-str))]
-  #:args (base-filename)
-  base-filename))
+(module+ main
+  (require racket/cmdline)
+  (file-stream-buffer-mode (current-output-port) 'none)
+  (compile-and-link
+   (command-line
+    #:program "main-arm.rkt"
+    #:once-each
+    [("-o" "--output") f
+     "Set output filename (default: INPUT.img)"
+     (output-file f)]
+    ["--start" addr-str
+     "Set start address"
+     (start-addr (string->number addr-str))]
+    ["--stack" addr-str
+     "Set stack origin"
+     (stack-origin (string->number addr-str))]
+    #:args (base-filename)
+    base-filename)))
