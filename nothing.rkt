@@ -220,9 +220,10 @@
 	  (snip dest `(wdiv ,dest ,(lit 1) ,dest)))]
     [`(/ ,rands ...) (op2 tail? dest env 'wdiv (void) rands)]
 
-    [(or `(%) `(% ,_))
-     (error 'translate-exp "(%) needs two or more arguments")]
-    [`(% ,rands ...) (op2 tail? dest env 'wmod (void) rands)]
+    [`(% ,a ,b)
+     (seq [(av (translate-exp #f (fresh-reg) a env))
+           (bv (translate-exp #f (fresh-reg) b env))]
+          (snip dest `(wmod ,dest ,av ,bv)))]
 
     [`(binand ,rands ...) (op2 tail? dest env 'wand -1 rands)]
     [`(binor ,rands ...) (op2 tail? dest env 'wor 0 rands)]
