@@ -161,13 +161,18 @@
 
 (define (compute-sp-delta cc most-tail-args temp-count)
   (+ (frame-pad-argc cc most-tail-args)
-     (frame-pad-words cc temp-count)))
+     (frame-pad-words cc temp-count)
+     (calling-convention-entry-linkage-padding cc)))
 
 (define (make-location-resolver cc inward-arg-count most-tail-args temp-count leaf?)
   (define sp-delta (compute-sp-delta cc most-tail-args temp-count))
   (define word-size (calling-convention-word-size cc))
   (define leaf-pad (calling-convention-entry-linkage-padding cc))
   (define sprel (calling-convention-sp-relative-location cc))
+  (define (arg-block-delta block-count n)
+    ;; Yields a negative number: count of BYTES from the END of the
+    ;; padded argument block holding block-count slots for arguments.
+    (- (* n word-size) (frame-pad-argc cc block-count)))
   (lambda (v)
     (match v
       [(lit n) n]
@@ -175,21 +180,21 @@
       [(preg r _) r]
       [(temporary n _)
        (if leaf?
-	   (sprel (- (* n word-size) sp-delta leaf-pad))
+	   (sprel (- (* n word-size) sp-delta))
 	   (sprel (* n word-size)))]
       [(inward-arg n)
        (if leaf?
-	   (sprel (- (- (* n word-size) (frame-pad-argc cc inward-arg-count)) leaf-pad))
-	   (sprel (+ (- (* n word-size) (frame-pad-argc cc inward-arg-count)) sp-delta)))]
+	   (sprel    (- (arg-block-delta inward-arg-count n) leaf-pad))
+	   (sprel (+ (- (arg-block-delta inward-arg-count n) leaf-pad) sp-delta)))]
       [(outward-arg 'nontail outward-arg-count n)
        (if leaf?
 	   (error 'make-location-resolver "Nontail call in leaf procedure")
-	   (sprel (- (- (* n word-size) (frame-pad-argc cc outward-arg-count))
+	   (sprel (- (arg-block-delta outward-arg-count n)
 		     (calling-convention-linkage-size cc))))]
       [(outward-arg 'tail outward-arg-count n)
        (if leaf?
-	   (sprel (- (- (* n word-size) (frame-pad-argc cc outward-arg-count)) leaf-pad))
-	   (sprel (+ (- (* n word-size) (frame-pad-argc cc outward-arg-count)) sp-delta)))]
+	   (sprel    (- (arg-block-delta outward-arg-count n) leaf-pad))
+	   (sprel (+ (- (arg-block-delta outward-arg-count n) leaf-pad) sp-delta)))]
       )))
 
 (module+ test
@@ -398,6 +403,96 @@
     (expect-loc 9 11 3 #t ((inward-argument-location cc) 6) (@reg 'rsp -40))
     (expect-loc 9 11 3 #t ((inward-argument-location cc) 7) (@reg 'rsp -32))
     (expect-loc 9 11 3 #t ((inward-argument-location cc) 8) (@reg 'rsp -24))
+
+    ;; Simple 3-ary leaf function
+    ;;  -- where are its arguments?
+    (expect-loc 3 3 0 #t ((inward-argument-location cc) 0) 'rdi)
+    (expect-loc 3 3 0 #t ((inward-argument-location cc) 1) 'rsi)
+    (expect-loc 3 3 0 #t ((inward-argument-location cc) 2) 'rdx)
+    ;;  -- where do its arguments go, from an 0-ary non-leaf function non-tail call?
+    (expect-loc 0 0 0 #f ((outward-argument-location cc) 'nontail 3 0) 'rdi)
+    (expect-loc 0 0 0 #f ((outward-argument-location cc) 'nontail 3 1) 'rsi)
+    (expect-loc 0 0 0 #f ((outward-argument-location cc) 'nontail 3 2) 'rdx)
+
+    ;; Simple 3-ary non-leaf function
+    ;;  -- where are its arguments?
+    (expect-loc 3 3 0 #f ((inward-argument-location cc) 0) 'rdi)
+    (expect-loc 3 3 0 #f ((inward-argument-location cc) 1) 'rsi)
+    (expect-loc 3 3 0 #f ((inward-argument-location cc) 2) 'rdx)
+    ;;  -- where do its arguments go, from an 0-ary non-leaf function non-tail call?
+    ;;      -- same place as for calling a leaf function; indistinguishable externally.
+
+    ;; Simple 9-ary non-leaf function
+    ;;  -- where are its arguments?
+    (expect-loc 9 9 0 #f ((inward-argument-location cc) 0) 'rdi)
+    (expect-loc 9 9 0 #f ((inward-argument-location cc) 1) 'rsi)
+    (expect-loc 9 9 0 #f ((inward-argument-location cc) 2) 'rdx)
+    (expect-loc 9 9 0 #f ((inward-argument-location cc) 3) 'rcx)
+    (expect-loc 9 9 0 #f ((inward-argument-location cc) 4) 'r8)
+    (expect-loc 9 9 0 #f ((inward-argument-location cc) 5) 'r9)
+    (expect-loc 9 9 0 #f ((inward-argument-location cc) 6) (@reg 'rsp 0))
+    (expect-loc 9 9 0 #f ((inward-argument-location cc) 7) (@reg 'rsp 8))
+    (expect-loc 9 9 0 #f ((inward-argument-location cc) 8) (@reg 'rsp 16))
+    ;;  -- where do its arguments go, from an 0-ary non-leaf function non-tail call?
+    (expect-loc 0 0 0 #f ((outward-argument-location cc) 'nontail 9 0) 'rdi)
+    (expect-loc 0 0 0 #f ((outward-argument-location cc) 'nontail 9 1) 'rsi)
+    (expect-loc 0 0 0 #f ((outward-argument-location cc) 'nontail 9 2) 'rdx)
+    (expect-loc 0 0 0 #f ((outward-argument-location cc) 'nontail 9 3) 'rcx)
+    (expect-loc 0 0 0 #f ((outward-argument-location cc) 'nontail 9 4) 'r8)
+    (expect-loc 0 0 0 #f ((outward-argument-location cc) 'nontail 9 5) 'r9)
+    (expect-loc 0 0 0 #f ((outward-argument-location cc) 'nontail 9 6) (@reg 'rsp -48))
+    (expect-loc 0 0 0 #f ((outward-argument-location cc) 'nontail 9 7) (@reg 'rsp -40))
+    (expect-loc 0 0 0 #f ((outward-argument-location cc) 'nontail 9 8) (@reg 'rsp -32))
+
+    )
+
+  (let () ;; i386 calling conventions
+    (local-require "asm-i386.rkt")
+    (define cc (calling-convention '()
+                                   0
+                                   (lambda (delta) (@reg 'esp delta))
+                                   4
+                                   16
+                                   16 ;; ebp + eip + two useless words
+                                      ;; because of the way we compute
+                                      ;; padding at the moment
+                                   12 ;; space for ebp that we don't
+                                      ;; use right now, plus those two
+                                      ;; useless words
+                                   ))
+    (define expect-loc (make-expect-loc cc))
+
+    ;; i386
+    ;; ---------------------------------------------------------------------------
+    ;; Upon entry to a subroutine, Ni=3, No=5, Nt=3, Na=3:
+    ;;
+    ;; (low)   outbound 0  |
+    ;;                  1  |
+    ;;                  2  |
+    ;;         padding     |
+    ;;         linkage pad |                           |__ linkage-size
+    ;;                 rip | ___/ rsp for non-leaf     |
+    ;;         temps    0  |
+    ;;                  1  |
+    ;;                  2  |
+    ;;         padding     |
+    ;;         padding     |
+    ;;         padding     |
+    ;;         shuffle     |
+    ;;         shuffle     |
+    ;;         inbound  0  |
+    ;;                  1  |
+    ;;                  2  |
+    ;;         padding     |
+    ;;         linkage pad |                           |
+    ;;         linkage pad |                           |
+    ;;         linkage pad | ___/ rsp for leaf         |__ entry-linkage-padding
+    ;; (high)  linkage rip |
+    ;;
+    ;;
+
+    (expect-loc 0 3 5 #f (temporary 4 #f) (@reg 'esp 16))
+    (expect-loc 0 3 5 #f ((outward-argument-location cc) 'tail 3 0) (@reg 'esp 32))
 
     )
   )
