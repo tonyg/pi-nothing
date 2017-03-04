@@ -40,7 +40,7 @@
   (define most-tail-args (apply max
 				argcount
 				(map (match-lambda
-				      [`(tailcall ,_ ,_ ,args) (length args)]
+				      [`(tailcall ,_ ,args) (length args)]
 				      [_ 0])
 				     body-instrs)))
   ;; (pretty-display `(pre-expansion (body-instrs ,body-instrs)
