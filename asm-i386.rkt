@@ -127,7 +127,7 @@
   (cond
    ((immediate? amount)
     (list (mod-r-m-32 #xC1 subop target) amount))
-   ((eq? amount 'rcx)
+   ((eq? amount 'ecx)
     (mod-r-m-32 #xD3 subop target))
    (else
     (error '*shl "~a: Can only assemble immediate or CL shift; got ~v" name amount))))
