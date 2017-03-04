@@ -41,7 +41,7 @@
 			       ))
 
 (define killed-regs '(eax edx ecx))
-(define saved-regs '(ebx esi edi))
+(define saved-regs '(ebx esi edi ebp))
 
 ;; At the moment putting the preferred register later in the list
 ;; makes it tried first. See the details of how the recursion in
@@ -54,6 +54,12 @@
 
 (define ((expand-instruction saved-locs) instr)
   (match instr
+    [`(w*/extended ,hi ,lo ,s1 ,s2)
+     (list `(move-word ,(preg 'eax #f) ,s1)
+           `(move-word ,(preg 'ecx #f) ,s2)
+           `(w*/extended ,(preg 'edx #f) ,(preg 'eax #f) ,(preg 'eax #f) ,(preg 'ecx #f))
+           `(move-word ,hi ,(preg 'edx #f))
+           `(move-word ,lo ,(preg 'eax #f)))]
     [`(wdiv ,target ,s1 ,s2)
      (list `(move-word ,(preg 'edx #f) ,(lit 0))
 	   `(move-word ,(preg 'eax #f) ,s1)
@@ -100,6 +106,31 @@
              (map (lambda (loc name) `(move-word ,(preg name #f) ,loc)) saved-locs saved-regs)
              ;;(map (lambda (name) `(use ,(preg name #f))) saved-regs)
 	     (list `(tailcall ,label ,(map mkarg (iota argcount)))))]
+    [`(,(and op (or 'store-word 'store-byte)) ,target ,source)
+     (define rt (if (non-reg? target) (fresh-reg) target))
+     ;; Here we differ from the x86_64 equivalent logic, for
+     ;; `store-byte` only, because we can only store bytes from AL,
+     ;; CL, DL, BL or AH, CH, DH, BH. None of the low bytes of ESI,
+     ;; EDI, ESP or EBP are available. We'd like to take any of EAX,
+     ;; ECX, EDX or EBX here but the register allocator isn't flexible
+     ;; enough to express this at the moment, so we hardcode it to EAX
+     ;; and just hope that (a) byte stores aren't too frequent and (b)
+     ;; whenever we do store a byte, EAX happens to be available.
+     (define rs (cond [(eq? op 'store-byte) (preg 'eax (lir-value-var source))] ;; always replace
+                      [(non-reg? source) (fresh-reg)] ;; store-word to something not a register
+                      [else source])) ;; store-word to a register
+     (list `(move-word ,rt ,target)
+	   `(move-word ,rs ,source)
+	   `(,op ,rt ,rs))]
+    [`(wshift ,op ,(? reg-or-preg? target) ,(lit n) ,(lit m))
+     (list `(move-word ,target ,(lit (arithmetic-shift n m))))]
+    [`(wshift ,op ,(? reg-or-preg? target) ,n ,(lit m))
+     (list `(move-word ,target ,n)
+	   `(wshift ,op ,target ,target ,(lit m)))]
+    [`(wshift ,op ,(? reg-or-preg? target) ,n ,shift-amount)
+     (list `(move-word ,target ,n)
+	   `(move-word ,(preg 'ecx #f) ,shift-amount)
+	   `(wshift ,op ,target ,target ,(preg 'ecx #f)))]
     [i
      (list i)]))
 
@@ -133,7 +164,7 @@
 		    (let ((r (fresh-reg)))
 		      (list `(move-word ,r ,m)
 			    `(move-word ,n ,r))))]
-	       [`(,(and op (or 'w+ 'w- 'w* 'wdiv 'wmod)) ,target ,s1 ,s2)
+	       [`(,(and op (or 'w+ 'w- 'w* 'wand 'wor 'wxor 'wdiv 'wmod)) ,target ,s1 ,s2)
 		(shuffle-for-two-args (lambda (o i1 i2) `(,op ,o ,i1 ,i2))
 				      target
 				      s1
@@ -146,10 +177,23 @@
 		(define r (fresh-reg))
 		(list `(move-word ,r ,m)
 		      `(compare/jmp ,cmpop ,target ,n ,r))]
-	       [`(load-word ,(temporary n var) ,source ,offset)
+	       [`(,(and op (or 'load-word 'load-byte)) ,(temporary n var) ,source ,offset)
 		(define r (fresh-reg))
-		(list `(load-word ,r ,source ,offset)
+		(list `(,op ,r ,source ,offset)
 		      `(move-word ,(temporary n var) ,r))]
+	       [`(,(and op (or 'store-word 'store-byte)) ,target ,(temporary n var))
+		(define r (fresh-reg))
+		(list `(move-word ,r ,(temporary n var))
+		      `(,op ,target ,r))]
+	       ;; [`(store-byte ,target ,source)
+               ;;  #:when (match source
+               ;;           [(preg (or 'eax 'ebx 'ecx 'edx) _) #f]
+               ;;           [_ #t])
+               ;;  ;; TODO: This feels sketchy. I can't remember whether
+               ;;  ;; naming a *physical* register here is legit.
+	       ;;  (define r (preg 'eax (lir-value-var source)))
+	       ;;  (list `(move-word ,r ,source)
+	       ;;        `(store-byte ,target ,r))]
                [`(call ,target ,(? memory-location? proc) ,args)
                 (define r (fresh-reg))
                 (list `(move-word ,r ,proc)
@@ -176,12 +220,26 @@
 (define ((assemble-instr xs sp-delta) i)
   (match i
     [`(move-word ,target ,source)			(*mov (xs source) (xs target))]
+    [`(load-word ,(preg target _) ,(preg source _) ,o)	(*mov (@reg source o) target)]
+    [`(load-byte ,(preg target _) ,(preg source _) ,o)	(*movz (@reg source o) target)]
     [`(load-word ,(preg target _) ,(lit n) ,ofs)	(*mov (@imm (+ n ofs)) target)]
+    [`(load-byte ,(preg target _) ,(lit n) ,ofs)	(*movz (@imm (+ n ofs)) target)]
+    [`(store-word ,(preg target _) ,(preg source _))	(*mov source (@reg target 0))]
+    [`(store-byte ,(preg target _) ,(preg source _))	(*mov source (@reg target 0) #t)]
     [`(w+ ,target ,target ,source)			(*op 'add (xs source) (xs target))]
     [`(w- ,target ,target ,source)			(*op 'sub (xs source) (xs target))]
     [`(w* ,target ,target ,source)			(*imul (xs source) (xs target))]
+    [`(w*/extended ,(preg 'edx _) ,(preg 'eax _) ,(preg 'eax _) ,(preg r _))
+     (*imul/extended r)]
+    [`(wand ,target ,target ,source)			(*op 'and (xs source) (xs target))]
+    [`(wor ,target ,target ,source)			(*op 'or (xs source) (xs target))]
+    [`(wxor ,target ,target ,source)			(*op 'xor (xs source) (xs target))]
     [`(wdiv ,(preg 'eax _) ,(preg 'eax _) ,(preg r _))	(*div r)]
     [`(wmod ,(preg 'eax _) ,(preg 'eax _) ,(preg r _))	(*div r)]
+    [`(wshift ,op ,target ,target ,amount)		(case op
+							  [(<<) (*shl (xs amount) (xs target))]
+							  [(>>u) (*shr (xs amount) (xs target))]
+							  [(>>s) (*sar (xs amount) (xs target))])]
     [`(compare/set ,cmpop ,(preg 'eax _) ,(? lit? n) ,(? lit? m))
      (*mov (evaluate-cmpop cmpop (lit-val n) (lit-val m)) 'eax)]
     [`(compare/jmp ,cmpop ,(label tag) ,(? lit? n) ,(? lit? m))
