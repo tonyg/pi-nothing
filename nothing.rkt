@@ -214,7 +214,7 @@
     [`(- ,rands ...) (op2 tail? dest env 'w- (void) rands)]
 
     [`(/)
-     (error 'translate-exp "(-) needs arguments")]
+     (error 'translate-exp "(/) needs arguments")]
     [`(/ ,rand)
      (seq ([v (translate-exp #f dest rand env)])
 	  (snip dest `(wdiv ,dest ,(lit 1) ,dest)))]
