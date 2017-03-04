@@ -254,7 +254,59 @@
 
 (define (i386-prelude)
   (local-require "asm-i386.rkt")
-  (error 'i386-prelude "Unimplemented"))
+  (local-require "mach-i386.rkt")
+
+  (define pad-chunk (make-pad-chunk 4 #x90))
+
+  (define (make-syscall name number argcount)
+    (printf "\n\n- make-syscall ~a ~a ~a\n\n" name number argcount)
+    (define argregs '(ebx ecx edx esi edi ebp)) ;; and syscall number goes in eax
+    (define-values (code data _new-debug-map)
+      (compile-procedure*
+       #:leaf? #f
+       machine-i386
+       argcount
+       '() #;(for/list ((i argcount))
+               `(move-word ,(reg i #f) ,(preg (list-ref argregs i) #f)))
+       (append (for/list ((i argcount))
+                 `(move-word ,(preg (list-ref argregs i) #f) ,(inward-arg i)))
+               (list
+                `(move-word ,(preg 'eax #f) ,(lit number))
+                `(call ,(preg 'eax #f) ,(label '%%syscall_generic) ()))
+               (for/list ((i argcount))
+                 `(use ,(preg (list-ref argregs i) #f)))
+               ;; (for/list ((i argcount))
+               ;;   `(move-word ,(preg (list-ref argregs i) #f) ,(reg i #f)))
+               (list
+                `(ret ,(preg 'eax #f))))
+       '()))
+    (list (label-anchor name)
+          (pad-chunk code)
+          (pad-chunk data)))
+
+  (list (*op 'and #xfffffff0 'esp)
+	(*call (label-reference 'main))
+        (*push 'eax)
+	(*call (label-reference '%%exit))
+	(label-anchor '%%ostype)
+	(*mov 0 'eax)
+	(*ret)
+	(label-anchor '%%wordsize)
+	(*mov 32 'eax)
+	(*ret)
+        (label-anchor '%%syscall_generic)
+        (*int #x80)
+        (*ret)
+        ;; System call info for i386:
+        ;;  - http://asm.sourceforge.net/syscall.html
+        ;;  - https://www.win.tue.nl/~aeb/linux/lk/lk-4.html
+        ;;  - http://stackoverflow.com/questions/2535989/what-are-the-calling-conventions-for-unix-linux-system-calls-on-x86-64
+        ;;  - https://www.freebsd.org/doc/en/books/developers-handbook/x86-system-calls.html
+        ;;  - http://www.int80h.org/bsdasm/#system-calls
+        (make-syscall '%%write 4 3) ;; fd, ptr, length
+	(make-syscall '%%exit 1 1) ;; exit_status
+	(make-syscall '%%mmap 192 6) ;; addr, len, prot, flags, fd, offset
+        ))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
