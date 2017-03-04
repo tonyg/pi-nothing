@@ -26,19 +26,28 @@
 	 *imul
 	 *not
 	 *mul
+	 *imul/extended
 	 *div
 	 *inc
 	 *mov
 	 *cmov
+	 *movz
 	 *setcc-eax
 	 *call
 	 *jmp
 	 *jmp-cc
 	 *push
 	 *pop
+	 *rol
+	 *ror
+	 *shl
+	 *shr
+	 *sar
 
 	 *leave
 	 *ret
+
+	 *int
 	 )
 
 (define regs '((eax 0)
@@ -114,6 +123,21 @@
 (define (*inc target)
   (mod-r-m-32 #xFF 0 target))
 
+(define (*shift-ish name subop amount target)
+  (cond
+   ((immediate? amount)
+    (list (mod-r-m-32 #xC1 subop target) amount))
+   ((eq? amount 'rcx)
+    (mod-r-m-32 #xD3 subop target))
+   (else
+    (error '*shl "~a: Can only assemble immediate or CL shift; got ~v" name amount))))
+
+(define (*rol amount target) (*shift-ish '*rol 0 amount target))
+(define (*ror amount target) (*shift-ish '*ror 1 amount target))
+(define (*shl amount target) (*shift-ish '*shl 4 amount target))
+(define (*shr amount target) (*shift-ish '*shr 5 amount target))
+(define (*sar amount target) (*shift-ish '*sar 7 amount target))
+
 (define (*mov source target . maybe-8bit)
   (let ((w-bit (if (null? maybe-8bit) 1 (if (car maybe-8bit) 0 1))))
     (cond
@@ -149,6 +173,9 @@
 (define (*cmov code source target)
   (mod-r-m-32 (list #x0F (bitfield 4 4 4 (condition-code-num code))) target source))
 
+(define (*movz source target) ;; load 8-bit value into 32-bit register with zero-extend
+  (mod-r-m-32 (list #x0F #xB6) target source))
+
 (define (*setcc-eax code)
   (list (mod-r-m-32 (list #x0F (bitfield 4 9 4 (condition-code-num code))) 0 'eax)
 	(*op 'and 1 'eax)))
@@ -182,6 +209,8 @@
 
 (define (*leave) #xC9)
 (define (*ret) #xC3)
+
+(define (*int n) (list #xCD n))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
