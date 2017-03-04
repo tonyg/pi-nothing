@@ -29,6 +29,7 @@
 (require "debug-info.rkt")
 
 (provide compile-procedure
+         compile-procedure*
 	 compile-and-link-procedure)
 
 (define (compile-procedure md proc-name arg-names body-exp env)
@@ -37,24 +38,30 @@
   (define target-reg (fresh-reg))
   (define-values (body-instrs body-data)
     (frontend proc-name body-exp (append rib env)))
-  (define most-tail-args (apply max
-				argcount
-				(map (match-lambda
-				      [`(tailcall ,_ ,args) (length args)]
-				      [_ 0])
-				     body-instrs)))
-  ;; (pretty-display `(pre-expansion (body-instrs ,body-instrs)
-  ;;                                 (body-data ,body-data)))
   (define init-arg-instrs (do ((i 0 (+ i 1))
 			       (rib rib (cdr rib))
 			       (prolog '() (cons `(move-word ,(cadr (car rib))
 							     ,(inward-argument-location md i))
 						 prolog)))
 			      ((null? rib) (reverse prolog))))
+  (compile-procedure* md argcount init-arg-instrs body-instrs body-data))
+
+(define (compile-procedure* md argcount init-arg-instrs body-instrs body-data
+                            #:leaf? [leaf?0 'unknown])
+  ;; (pretty-display `(pre-expansion (body-instrs ,body-instrs)
+  ;;                                 (body-data ,body-data)))
   (define instrs (expand-instructions md init-arg-instrs body-instrs))
-  (define leaf? (not (findf (match-lambda [`(call ,_ ,_ ,_) #t] [_ #f]) instrs)))
+  (define leaf? (if (eq? leaf?0 'unknown)
+                    (not (findf (match-lambda [`(call ,_ ,_ ,_) #t] [_ #f]) instrs))
+                    leaf?0))
   ;; (pretty-display `(post-expansion ,instrs))
   (define-values (temp-count allocated-instrs) (allocate-registers md instrs))
+  (define most-tail-args (apply max
+				argcount
+				(map (match-lambda
+				      [`(tailcall ,_ ,args) (length args)]
+				      [_ 0])
+				     body-instrs)))
   ;; (pretty-display `((leaf? ,leaf?)
   ;;                   (argcount ,argcount)
   ;;                   (most-tail-args ,most-tail-args)
