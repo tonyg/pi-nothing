@@ -68,3 +68,13 @@ It'd allow for abstraction over the various syscall mechanisms without
 having to hardcode arch-specific assembly for each syscall, and would
 also avoid procedure-call overhead. For x86_64, (syscall 1 a b c)
 would place a, b, c in rdi, rsi, rdx, then place 1 in rax and SYSCALL.
+
+-=-=-=-
+
+2017-07-19 10:31:06 Two interesting links on structuring compilers:
+
+ - https://gist.github.com/thoughtpolice/fd27b6a1a324b467f9d6657a80d1e6b1
+ - https://jeapostrophe.github.io/courses/2017/spring/406/notes/book.pdf
+
+The second is a book, "Essentials of Compilation -- An Incremental
+Approach", by Jeremy Siek, discovered by way of the first.
