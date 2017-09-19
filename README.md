@@ -13,6 +13,10 @@ Alternatively,
     $ make versatilepb.img
     $ ./run-kernel
 
+If your build fails due to missing Racket dependencies (collections), use `raco pkg` to install them.
+
+    $ raco pkg install bitsyntax
+    
 ## Details
 
 This command compiles the ARM disassembler `disarm`, copyright Gareth
