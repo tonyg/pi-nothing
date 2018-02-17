@@ -1,0 +1,125 @@
+;; -*- mode: scheme -*-
+
+(define (newline fd)
+  (%%write fd (data #"\n") 1))
+
+(define (strlen p)
+  (let ((mutable p p)
+	(mutable count 0)
+	(mutable ch (?byte p)))
+    (while (<> ch 0)
+      (set! count (+ count 1))
+      (set! p (+ p 1))
+      (set! ch (?byte p)))
+    count))
+
+(define (puts fd s)
+  (%%write fd s (strlen s)))
+
+(define (putc fd c)
+  (let ((buf (data #" ")))
+    (!byte buf c)
+    (%%write fd buf 1)))
+
+(define (putrgb buf stride x y r g b)
+  (let ((i (* 4 (+ x (* y stride)))))
+    (!byte (+ buf i) r)
+    (!byte (+ buf (+ i 1)) g)
+    (!byte (+ buf (+ i 2)) b)
+    (!byte (+ buf (+ i 3)) 0)))
+
+(define (putn fd n)
+  (cond
+   [(= n 0) (putc fd #x30)]
+   [(<s n 0)
+    (putc fd #x2d)
+    (putn1 fd (- 0 n))]
+   [else
+    (putn1 fd n)]))
+
+(define (putn1 fd n)
+  (if (= n 0)
+      0
+      (begin (putn1 fd (/ n 10))
+	     (putc fd (+ (% n 10) #x30)))))
+
+(define (int->fix i)
+  (<< i 16))
+
+(define (fix*/64 f1 f2)
+  (>>s (* f1 f2) 16))
+
+(define (fix*/32 f1 f2)
+  (*/extended f1 f2 (hi lo)
+              (binor (<< hi 16) (>>u lo 16))))
+
+(define (escape-iteration-count cx cy)
+  (let ((fix* (if (= (%%wordsize) 32)
+                  fix*/32
+                  fix*/64))
+        (mutable zx 0)
+	(mutable zy 0)
+	(mutable zx2 0)
+	(mutable zy2 0)
+	(mutable i 0)
+	(iteration-limit 255))
+    (while (logand (<s (+ zx2 zy2) (int->fix 4))
+		   (<u i iteration-limit))
+      (set! zx2 (fix* zx zx))
+      (set! zy2 (fix* zy zy))
+      (let ((tx (+ cx (- zx2 zy2)))
+	    (ty (+ cy (<< (fix* zx zy) 1))))
+	(set! i (+ i 1))
+	(set! zx tx)
+	(set! zy ty)))
+    (if (= i iteration-limit)
+	-1
+	i)))
+
+(const PROT_NONE 0)
+(const PROT_READ 1)
+(const PROT_WRITE 2)
+(const PROT_EXEC 4)
+
+(const OS_LINUX 0)
+(const OS_OSX 1)
+
+(const MAP_PRIVATE 2)
+(const LINUX_MAP_ANON #x20)
+(const OSX_MAP_ANON #x1000)
+
+(define (alloc/mmap amount)
+  (%%mmap 1048576 ;; arbitrary suggested addr
+	  amount
+	  (+ (+ PROT_READ PROT_WRITE) PROT_EXEC) 
+	  (+ MAP_PRIVATE
+	     (let ((ostype (%%ostype)))
+	       (cond [(= ostype OS_LINUX) LINUX_MAP_ANON]
+		     [(= ostype OS_OSX) OSX_MAP_ANON]
+		     [else (%%exit 1)])))
+	  -1
+	  0))
+
+(define (main)
+  (let ((width 1280)
+	(height 800))
+    (let ((mutable y 0)
+	  (buf (alloc/mmap (* 4 (* width height))))
+	  (dx (/ (int->fix 4) width))
+	  (dy (/ (int->fix 4) height)))
+      (when (<s buf 4096)
+	(puts 1 (data #"mmap failed: \0"))
+	(putn 1 buf)
+	(newline 1)
+	(%%exit 2))
+      ;; (pnm-header width height)
+      (while (<u y height)
+	(let ((mutable x 0))
+	  (while (<u x width)
+	    (let ((i (escape-iteration-count (+ (int->fix -2) (* x (/ (int->fix 4) width)))
+					     (+ (int->fix -2) (* y (/ (int->fix 4) height))))))
+	      (let ((b (if (= i -1) 0 i)))
+		(putrgb buf width x y b b b)))
+	    (set! x (+ x 1))))
+	(set! y (+ y 1)))
+      (%%write 1 buf (* 4 (* width height))))))
