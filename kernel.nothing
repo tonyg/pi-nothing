@@ -192,11 +192,11 @@
   (! (+ %gpio-base %gpio-pull-up/down) value)
   (delay-cycles 150)
   (when (<> pins0 0) (! (+ %gpio-base %gpio-pull-up/down-clock-base 0) pins0))
-  (when (<> pins1 0) (! (+ %gpio-base %gpio-pull-up/down-clock-base 1) pins1))
+  (when (<> pins1 0) (! (+ %gpio-base %gpio-pull-up/down-clock-base 4) pins1))
   (delay-cycles 150)
   (! (+ %gpio-base %gpio-pull-up/down) 0)
   (when (<> pins0 0) (! (+ %gpio-base %gpio-pull-up/down-clock-base 0) 0))
-  (when (<> pins1 0) (! (+ %gpio-base %gpio-pull-up/down-clock-base 1) 0)))
+  (when (<> pins1 0) (! (+ %gpio-base %gpio-pull-up/down-clock-base 4) 0)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
