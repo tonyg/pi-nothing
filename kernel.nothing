@@ -248,6 +248,14 @@
     (! $alloc-pointer-addr (+ result rounded-size))
     result))
 
+(define (copy-bytes! target source count)
+  (when (>u count 0)
+    (!byte target (?byte source))
+    (copy-bytes! (+ target 1) (+ source 1) (- count 1))))
+
+(define (maxu a b)
+  (if (>u a b) a b))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (const %mailbox-base #x2000b880)
@@ -324,14 +332,16 @@
 (const %property-tag-end #x00000000)
 (const %property-tag-get-arm-memory #x00010005)
 (const %property-tag-get-vc-memory #x00010006)
+(const %property-tag-get-clock-rate #x00030002)
 (const %property-tag-get-physical-display-size #x00040003)
 (const %property-tag-get-dma-channels #x00060001)
 
-(define (mailbox-property-get tag response-buffer-size)
-  (let ((*saved* (*save-alloc-state*)))
+(define (mailbox-property-get tag request-buffer request-buffer-size response-buffer-size)
+  (let ((*saved* (*save-alloc-state*))
+        (request/response-buffer-size (maxu request-buffer-size response-buffer-size)))
     (let ((buflen (round-up-to-4 (+ sizeof-property-buffer-header
 				    sizeof-property-buffer-tag
-				    response-buffer-size
+                                    request/response-buffer-size
 				    4)))) ;; for end tag
       (let ((buf (alloc! buflen)))
 	(let ((tag-start (+ buf sizeof-property-buffer-header))
@@ -339,9 +349,10 @@
 	  (! (+ buf property-buffer-header-size) buflen)
 	  (! (+ buf property-buffer-header-opcode) %property-buffer-op-request)
 	  (! (+ tag-start property-buffer-tag-id) tag)
-	  (! (+ tag-start property-buffer-tag-buffer-size) response-buffer-size)
+	  (! (+ tag-start property-buffer-tag-buffer-size) request/response-buffer-size)
 	  (! (+ tag-start property-buffer-tag-value-length) 0)
-	  (! (+ value-start response-buffer-size) %property-tag-end)
+          (copy-bytes! value-start request-buffer request-buffer-size)
+	  (! (+ value-start request/response-buffer-size) %property-tag-end)
 	  (mailbox-send! %channel-properties-arm->vc buf)
 	  (let ((reply (mailbox-recv %channel-properties-arm->vc)))
 	    ;; The reply seems to be the same as the buffer pointer we gave.
@@ -358,7 +369,7 @@
 			      (size word))) ;; in bytes
 
 (define (get-*-memory tag)
-  (? (+ (mailbox-property-get tag sizeof-property-memory-info)
+  (? (+ (mailbox-property-get tag 0 0 sizeof-property-memory-info)
 	property-memory-info-size)))
 
 (define (get-arm-memory) (get-*-memory %property-tag-get-arm-memory))
@@ -368,10 +379,10 @@
                                      (height word)))
 
 (define (get-physical-display-size)
-  (mailbox-property-get %property-tag-get-physical-display-size sizeof-property-display-dimensions))
+  (mailbox-property-get %property-tag-get-physical-display-size 0 0 sizeof-property-display-dimensions))
 
 (define (get-dma-channel-availability-mask)
-  (binand (? (mailbox-property-get %property-tag-get-dma-channels 4))
+  (binand (? (mailbox-property-get %property-tag-get-dma-channels 0 0 4))
 	  #x0000ffff))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
