@@ -1041,11 +1041,9 @@
 (define (strcmp p q)
   (let ((pbyte (?byte p)))
     (let ((diff (- pbyte (?byte q))))
-      (if (<> diff 0)
-	  diff
-	  (if (= pbyte 0)
-	      0
-	      (strcmp (+ p 1) (+ q 1)))))))
+      (cond ((<> diff 0) diff)
+            ((= pbyte 0) 0)
+            (else (strcmp (+ p 1) (+ q 1)))))))
 
 (define (round-up-to-4-bytes n)
   (binand #xfffffffc (+ n 3)))
