@@ -386,6 +386,29 @@
 	  #x0000ffff))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Clocks
+
+(const %clock-RESERVED 0)
+(const %clock-emmc 1)
+(const %clock-uart 2)
+(const %clock-arm 3)
+(const %clock-core 4)
+(const %clock-v3d 5)
+(const %clock-h264 6)
+(const %clock-isp 7)
+(const %clock-sdram 8)
+(const %clock-pixel 9)
+(const %clock-pwm 10)
+
+(define (get-clock-rate clock-id)
+  (let ((*saved* (*save-alloc-state*)))
+    (let ((clock-id-buffer (alloc! 4)))
+      (! clock-id-buffer clock-id)
+      (let ((reply-buffer (mailbox-property-get %property-tag-get-clock-rate clock-id-buffer 4 8)))
+        (*restore-alloc-state* *saved*)
+        (? (+ reply-buffer 4))))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (struct framebuffer-description ((width word)
 				 (height word)
@@ -1266,13 +1289,15 @@
   ;; Clear any pending interrupts that might be there
   (! (+ uart0 uart-icr) #x7f2) ;; clear them all except the "disabled, write as zero" ones
 
-  ;; Set the baud rate divisors, integer and fractional. The base clock is 3MHz.
-  ;; TODO: Use "Clocks" mailbox property interface to read the UART base clock value dynamically.
-  ;; actual divisor D = 3000000.0 / (16 * baudrate) = roughly 1.627604 for 115200 baud
-  ;; integer divisor = trunc(D) = 1 for 115200 baud
-  ;; fractional divisor = trunc(((D - trunc(D)) * 64) + 0.5) = 40, for 115200
-  (! (+ uart0 uart-ibrd) 1)
-  (! (+ uart0 uart-fbrd) 40)
+  ;; Set the baud rate divisors, integer and fractional. Read the base clock value via the mailbox.
+  (let ((uart-clock-base (get-clock-rate %clock-uart)) ;; On Raspberry pi 1, default 3000000 = 3MHz
+        (baud-rate 115200))
+    ;; actual divisor D = 3000000.0 / (16 * baudrate) = roughly 1.627604 for 115200 baud
+    ;; integer divisor = trunc(D) = 1 for 115200 baud
+    ;; fractional divisor = trunc(((D - trunc(D)) * 64) + 0.5) = 40, for 115200
+    (let ((D<<128 (/ (<< uart-clock-base 3) baud-rate)))
+      (! (+ uart0 uart-ibrd) (>>u D<<128 7))
+      (! (+ uart0 uart-fbrd) (binand 63 (>>u (+ D<<128 1) 1)))))
 
   ;; Set 8N1, and (following xinu) leave the FIFOs off.
   (! (+ uart0 uart-lcr-h) uart-lcr-h-8-data-bits)
@@ -1395,13 +1420,13 @@
   (configure-interrupt-table)
   (configure-mmu-identity-mapping)
   (enable-caches) ;; After MMU enable, to make sure Icache is disabled when enabling MMU
+  (init-alloc!)
   (configure-interrupt-controller)
   (configure-performance-monitor)
   ;; Must configure UART after setting up the performance monitor,
   ;; because it uses the cycle counter to accurately pause during GPIO
   ;; pull-up/pull-down configuration.
   (configure-uart)
-  (init-alloc!)
   (let ((fbinfo (initialize-framebuffer))
 	(dma (initialize-dma)))
     (let ((con (make-console fbinfo dma)))
