@@ -1391,7 +1391,7 @@
 (define (print-banner con)
   (console-puts con
 		(data #"Welcome to MINOS for Raspberry Pi\n"
-		      #"Copyright (C) 2012-2015 Tony Garnock-Jones <tonyg@leastfixedpoint.com>\n\0")))
+		      #"Copyright (C) 2012-2018 Tony Garnock-Jones <tonyg@leastfixedpoint.com>\n\0")))
 
 (define (print-memory-info con)
   (console-puts con (data #"ARM memory \0"))
