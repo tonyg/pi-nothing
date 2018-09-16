@@ -803,10 +803,10 @@
 	     (console-putc con (+ (% i 10) 48)))
       0))
 
-(define (console-putn i)
+(define (console-putn con i)
   (if (<> i 0)
-      (console-putn* i)
-      (console-putc 48)))
+      (console-putn* con i)
+      (console-putc con 48)))
 
 (define (console-putx con n)
   (let ((mutable shift 28))
