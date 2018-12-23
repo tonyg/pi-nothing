@@ -1384,6 +1384,328 @@
   (let ((start (sys:get-rpi-cycle-counter)))
     (while (<u (- (sys:get-rpi-cycle-counter) start) n))))
 
+(define (delay-microseconds n)
+  (let ((start (current-timer-value)))
+    (while (<u (- (current-timer-value) start) n))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; EMMC / SD card
+;;
+;; Based on reading the linux sdhost driver,
+;; https://github.com/torvalds/linux/blob/master/drivers/mmc/host/bcm2835.c,
+;; and reading the U-Boot sdhost driver,
+;; http://git.denx.de/?p=u-boot.git;a=blob;f=drivers/mmc/bcm2835_sdhost.c
+;; which is a simplified version of the linux driver.
+
+                                                ;; Linux name:
+                                                ;;
+(struct sdhost ((command word)                  ;; SDCMD
+                (argument word)                 ;; SDARG
+                (timeout-counter word)          ;; SDTOUT
+                (clock-divider word)            ;; STCDIV
+                (response0 word)                ;; SDRSP0
+                (response1 word)                ;; SDRSP1
+                (response2 word)                ;; SDRSP2
+                (response3 word)                ;; SDRSP3
+                (status word)                   ;; SDHSTS
+                (reserved0 word 3)
+                (power-control word)            ;; SDVDD
+                (emergency-debug-mode word)     ;; SDEDM
+                (configuration word)            ;; SDHCFG
+                (byte-count word)               ;; SDHBCT
+                (data word)                     ;; SDDATA
+                (reserved1 word 3)
+                (block-count word)))            ;; SDHBLC
+
+(const %sdhost-fsm-mask         #x0f)
+(const %sdhost-fsm-IDENTMODE    #x00)
+(const %sdhost-fsm-DATAMODE     #x01)
+(const %sdhost-fsm-READDATA     #x02)
+(const %sdhost-fsm-WRITEDATA    #x03)
+(const %sdhost-fsm-READWAIT     #x04)
+(const %sdhost-fsm-READCRC      #x05)
+(const %sdhost-fsm-WRITECRC     #x06)
+(const %sdhost-fsm-WRITEWAIT1   #x07)
+(const %sdhost-fsm-POWERDOWN    #x08)
+(const %sdhost-fsm-POWERUP      #x09)
+(const %sdhost-fsm-WRITESTART1  #x0a)
+(const %sdhost-fsm-WRITESTART2  #x0b)
+(const %sdhost-fsm-GENPULSES    #x0c)
+(const %sdhost-fsm-WRITEWAIT2   #x0d)
+(const %sdhost-fsm-STARTPOWDOWN #x0f)
+
+(const %sdhost-command-NEW           #x8000)
+(const %sdhost-command-FAIL          #x4000)
+(const %sdhost-command-BUSYWAIT      #x0800)
+(const %sdhost-command-NO_RESPONSE   #x0400)
+(const %sdhost-command-LONG_RESPONSE #x0200)
+(const %sdhost-command-WRITE         #x0080)
+(const %sdhost-command-READ          #x0040)
+(const %sdhost-command-cmd-mask      #x003f)
+
+(const %sdhost-status-error-mask #xf8)
+
+(const sdhost0 #x20202000)
+(define (%sdhost0-hcfg) (data #"\0\0\0\0"))
+(define (%sdhost0-cdiv) (data #"\0\0\0\0"))
+
+(define (get-sdhost0-hcfg) (? (%sdhost0-hcfg)))
+(define (set-sdhost0-hcfg n) (! (%sdhost0-hcfg) n))
+
+(define (get-sdhost0-cdiv) (? (%sdhost0-cdiv)))
+(define (set-sdhost0-cdiv n) (! (%sdhost0-cdiv) n))
+
+(define (get-sdhost0-fsm) (binand %sdhost-fsm-mask (? (+ sdhost0 sdhost-emergency-debug-mode))))
+
+(define (initialize-emmc)
+  ;; TODO: use faster clock where possible
+  (set-sdhost0-hcfg #x00000008) ;; SDHCFG_SLOW_CARD=8
+  (set-sdhost0-cdiv #x000007ff) ;; slowest possible setting
+  (sdhost-reset-internal!))
+
+(define (sdhost-reset-internal!)
+  (! (+ sdhost0 sdhost-power-control) 0) ;; power off
+  (! (+ sdhost0 sdhost-command) 0)
+  (! (+ sdhost0 sdhost-argument) 0)
+  (! (+ sdhost0 sdhost-timeout-counter) #x00f00000)
+  (! (+ sdhost0 sdhost-clock-divider) 0)
+  (! (+ sdhost0 sdhost-status) #x0000007f8) ;; writing 1 bits clears those bits
+  (! (+ sdhost0 sdhost-configuration) 0)
+  (! (+ sdhost0 sdhost-byte-count) 0)
+  (! (+ sdhost0 sdhost-block-count) 0)
+
+  ;; Linux warns of a silicon bug that requires us to limit fifo usage.
+  ;; These numbers are from Linux.
+  (! (+ sdhost0 sdhost-emergency-debug-mode)
+     (binor (binand (? (+ sdhost0 sdhost-emergency-debug-mode))
+                    (binnot (binor (<< #x1f 14)   ;; mask out old read threshold
+                                   (<< #x1f 9)))) ;; mask out old write threshold
+            (<< 4 14)  ;; new read threshold
+            (<< 4 9))) ;; new write threshold
+  (delay-microseconds 20)
+
+  (! (+ sdhost0 sdhost-power-control) 1) ;; power on
+  (delay-microseconds 20)
+
+  (! (+ sdhost0 sdhost-configuration) (get-sdhost0-hcfg))
+  (! (+ sdhost0 sdhost-clock-divider) (get-sdhost0-cdiv)))
+
+(define (sdhost-request ...)
+  (let ((state (get-sdhost0-fsm)))
+    (cond ((logand (<> state %sdhost-fsm-IDENTMODE)
+                   (<> state %sdhost-fsm-DATAMODE))
+           (puts (data #"Previous SD card command \0"))
+           (putx (? (+ sdhost0 sdhost-command)))
+           (puts (data #" did not complete \0"))
+           (putx state)
+           (newline)
+           0)
+          ((= 0 (sdhost-send-command ...)) 0)
+          (else (sdhost-finish-command ...)))))
+
+(define (sdhost-command-status* start-time delay-amount timeout)
+  (let ((value (? (+ sdhost0 sdhost-command))))
+    (cond ((= 0 (binand value %sdhost-command-NEW)) value)
+          ((<u (- (current-timer-value) start-time) timeout)
+           (delay-microseconds delay-amount)
+           (sdhost-command-status* start-time delay-amount timeout))
+          (else value))))
+
+(define (sdhost-command-status)
+  (let ((start-time (current-timer-value)))
+    (let ((value (sdhost-command-status* start-time 1 10)))
+      (if (= 0 (binand value %sdhost-command-NEW))
+          value
+          (sdhost-command-status* start-time 10 100)))))
+
+(define (sdhost-clear-error-flags)
+  (let ((status (? (+ sdhost0 sdhost-status))))
+    (when (<> 0 (binand status %sdhost-status-error-mask))
+      (! (+ sdhost0 sdhost-status) status)))) ;; write-to-clear
+
+(define (sdhost-send-command ...)
+  (cond ((<> 0 (binand (sdhost-command-status) %sdhost-command-NEW))
+         (puts (data #"Previous SD card command did not complete.\n\0"))
+         0)
+        (else
+         (sdhost-clear-error-flags)
+         (! (+ sdhost0 sdhost-byte-count) BLOCK-SIZE)
+         (! (+ sdhost0 sdhost-block-count) BLOCK-COUNT)
+         (! (+ sdhost0 sdhost-argument) ARGUMENT)
+         (! (+ sdhost0 sdhost-command) COMMAND)
+         1)))
+
+(define (sdhost-finish-command ...)
+  (let ((value (sdhost-command-status)))
+    (cond ((<> 0 (binand value %sdhost-command-NEW))
+           (puts (data #"Current SD card command did not complete.\n\0"))
+           0)
+          ((<> 0 (binand value %sdhost-command-FAIL))
+           (sdhost-clear-error-flags)
+
+;; ;; Based on the BCM2835 peripheral documentation, the SD Association
+;; ;; SD Host Controller Simplified Specification version 4.20, and
+;; ;; assembly code (apparently an excerpt from DexBasic) from a post by
+;; ;; Raspberry pi user DexOS at
+;; ;; https://www.raspberrypi.org/forums/viewtopic.php?t=67889#p497902.
+
+;; (struct emmc (;;-- SD Command Generation registers
+;;               (arg2 word) ;; ACMD23 argument
+;;               (block-size-and-count word)
+;;               (arg1 word)
+;;               (command-and-transfer-mode word)
+;;               ;;-- Response registers
+;;               (response0 word)
+;;               (response1 word)
+;;               (response2 word)
+;;               (response3 word)
+;;               ;;-- Buffer Data Port register
+;;               (data word)
+;;               ;;-- Host Control 1 and Others
+;;               (status word)
+;;               (control0 word)
+;;               (control1 word)
+;;               ;;-- Interrupt Controls & Host Control 2
+;;               (interrupt word)
+;;               (interrupt-mask word)
+;;               (interrupt-enable word)
+;;               (control2 word)
+;;               ;;-- Force Event register
+;;               (force-interrupt word)
+;;               ;;-- ADMA2 registers (?!?!)
+;;               (boot-timeout word)
+;;               (debug-select word)
+;;               (extension-fifo-configuration word)
+;;               ;;-- Preset Value registers (?!?!)
+;;               (extension-fifo-enable word)
+;;               (tune-step word)
+;;               (tune-steps-std word) ;; SDR (Single Data Rate?) mode
+;;               (tune-steps-ddr word) ;; DDR (Double Data Rate?) mode
+;;               ;;-- ADMA3 registers (?!?!)
+;;               (spi-interrupt-support word)
+;;               (slot-interrupt-status-and-version word)))
+
+;; (const emmc0 #x20300000)
+
+;; ;; --------------------
+;; ;; emmc-control0 bits
+;; (const %emmc-ALT_BOOT_EN #x00400000)
+;; (const %emmc-BOOT_EN     #x00200000)
+;; (const %emmc-SPI_MODE    #x00100000)
+;; (const %emmc-GAP_IEN     #x00080000)
+;; (const %emmc-READWAIT_EN #x00040000)
+;; (const %emmc-GAP_RESTART #x00020000)
+;; (const %emmc-GAP_STOP    #x00010000)
+;; (const %emmc-HCTL_8BIT   #x00000020)
+;; (const %emmc-HCTL_HS_EN  #x00000004)
+;; (const %emmc-HCTL_DWIDTH #x00000002)
+;; ;; --------------------
+
+;; ;; --------------------
+;; ;; emmc-control1 bits
+;; (const %emmc-SRST_DATA  #x04000000) ;; reset data handling circuit
+;; (const %emmc-SRST_CMD   #x02000000) ;; reset command handling circuit
+;; (const %emmc-SRST_HC    #x01000000) ;; reset complete host circuit
+;; (const %emmc-data-timeout-disabled
+;;                         #x000f0000)
+;; (const %emmc-srst-cmd   #x070f0000)
+
+;; (define (%emmc-DATA_TOUNIT n) (<< (binand n 15) 16))
+;; ;; ^ data timeout unit exponent, 15 = disabled, else TMCLK*pow(2,x+13)
+
+;; (define (%emmc-CLK_FREQ n) ;; clock base divider bits
+;;   (binor (<<  (binand n #x00ff) 8)
+;;          (>>u (binand n #x0300) 2)))
+
+;; (const %emmc-CLK_GENSEL #x00000020) ;; 0 = divided clock generation; 1 = programmable
+;; (const %emmc-CLK_EN     #x00000004) ;; clock enable
+;; (const %emmc-CLK_STABLE #x00000002) ;; rising edge on emmc clock input (complicated!!)
+;; (const %emmc-CLK_INTLEN #x00000001) ;; internal emmc power-saving clocks enable
+;; ;; --------------------
+
+;; ;; --------------------
+;; ;; emmc-status bits
+;; (const %emmc-DAT_ACTIVE  #x00000004) ;; at least one data line active
+;; (const %emmc-DAT_INHIBIT #x00000002) ;; data lines still in use
+;; (const %emmc-CMD_INHIBIT #x00000001) ;; command line still in use
+;; ;; --------------------
+
+;; ;; --------------------
+;; ;; emmc command codes (command-and-transfer-mode values)
+;; (const %emmc-cmd-go-idle-state #x00000010) ;; "Reset Card" CMD0
+;; (const %emmc-cmd-send-if-cond  #x08030010) ;; "Voltage Check" CMD8
+;; (const %emmc-cmd-send-op-cond  #x29020000) ;; "Get OCR", "Initialization" CMD41
+;; (const %emmc-cmd-app-cmd       #x37020000) ;; CMD55
+;; ;; --------------------
+
+;; (define (initialize-emmc)
+;;   (emmc-default-setup!)
+;;   (delay-microseconds 1000)
+;;   (let ((argument #x00000142)) ;; what does it mean?
+;;     ;; SDHC cards need SEND_IF_COND; others don't.
+;;     (emmc-send-command! %emmc-cmd-send-if-cond argument)
+;;     (delay-microseconds 1000)
+;;     (when (<> (emmc-get-response0) argument)
+;;       (emmc-default-setup!)
+;;       (delay-microseconds 1000)))
+;;   (emmc-APP_CMD-loop)
+;;   ...)
+
+;; (define (emmc-initial-reset!)
+;;   ;; Pulse the SRST bits
+;;   (! (+ emmc0 emmc-control1) %emmc-srst-cmd)
+;;   (delay-microseconds 1000)
+;;   (! (+ emmc0 emmc-control1) %emmc-data-timeout-disabled)
+;;   (delay-microseconds 1000))
+
+;; (define (emmc-default-setup!)
+;;   (emmc-initial-reset!)
+
+;;   (! (+ emmc0 emmc-control0) %emmc-SPI_MODE)
+;;   (! (+ emmc0 emmc-control1) (+ %emmc-data-timeout-disabled
+;;                                 (%emmc-CLK_FREQ 255)
+;;                                 %emmc-CLK_GENSEL
+;;                                 %emmc-CLK_EN
+;;                                 %emmc-CLK_INTLEN)
+;;                                 #x000f0f25)
+;;   (! (+ emmc0 emmc-control2) #x00000000)
+;;   (! (+ emmc0 emmc-interrupt-mask) #xffffffff)
+;;   (delay-microseconds 5000)
+
+;;   (emmc-send-command! %emmc-cmd-go-idle-state 0))
+
+;; (define (emmc-cmd-inhibit?)
+;;   (binand (? (+ emmc0 emmc-status)) %emmc-CMD_INHIBIT))
+
+;; (define (-emmc-wait-for-reset- start)
+;;   (if (<> (? (+ emmc0 emmc-control1)) %emmc-srst-cmd)
+;;       1 ;; the reset has completed
+;;       (if (<u (- (current-timer-value) start) 1000000)
+;;           (-emmc-wait-for-reset- start)
+;;           (begin (puts #"EMMC reset failed to complete\n\0")
+;;                  0)))) ;; not ok to send!
+
+;; (define (emmc-ok-to-send?)
+;;   (if (<> 0 (emmc-cmd-inhibit?))
+;;       (begin (! (+ emmc0 emmc-control1) %emmc-srst-cmd)
+;;              (-emmc-wait-for-reset- (current-timer-value)))
+;;       1))
+
+;; (define (emmc-send-command! command-code argument)
+;;   (when (<> 0 (emmc-ok-to-send?))
+;;     (! (+ emmc0 emmc-arg1) argument)
+;;     (! (+ emmc0 emmc-command-and-transfer-mode) command-code)))
+
+;; (define (emmc-get-response0) (? (+ emmc0 %emmc-response0)))
+
+;; (define (emmc-APP_CMD-loop)
+;;   (emmc-send-command! %emmc-cmd-app-cmd 0)
+;;   (delay-microseconds 1000)
+;;   (emmc-get-response0)
+
+;;   (emmc-send-command! %emmc-cmd-send-op-cond #x40300000)
+;;   (delay-microseconds 1000)
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define (print-banner con)
@@ -1426,7 +1748,8 @@
   ;; pull-up/pull-down configuration.
   (configure-uart)
   (let ((fbinfo (initialize-framebuffer))
-	(dma (initialize-dma)))
+	(dma (initialize-dma))
+        (emmc (initialize-emmc)))
     (let ((con (make-console fbinfo dma)))
 
       (print-banner con)
@@ -1440,7 +1763,7 @@
       (when (= (? (+ atags-base 4)) ATAG_CORE)
 	(dump-atags con atags-base))
 
-      (dump-devicetree con atags-base)
+      ;; (dump-devicetree con atags-base)
 
       ;; Without this, incomplete rendering of the dumped devicetree
       ;; (or whatever the console last printed)!
