@@ -288,6 +288,6 @@
   (file-stream-buffer-mode (current-output-port) 'none)
   (compile-and-link
    (command-line
-    #:program "exec-macho.rkt"
+    #:program "pi-nothing-macho"
     #:args (base-filename)
     base-filename)))

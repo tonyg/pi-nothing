@@ -348,7 +348,7 @@
   (file-stream-buffer-mode (current-output-port) 'none)
   (compile-and-link
    (command-line
-    #:program "main-arm.rkt"
+    #:program "pi-nothing-arm-baremetal"
     #:once-each
     [("-o" "--output") f
      "Set output filename (default: INPUT.img)"

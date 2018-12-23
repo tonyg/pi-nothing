@@ -1,10 +1,12 @@
 #!/bin/sh
-echo "Type (C-a x) to terminate qemu in -nographic mode"
+echo
+echo "Graphical output via VNC at :0"
 echo
 
-IOOPTIONS="-serial stdio"
+IOOPTIONS="-serial stdio -vnc :0"
 # IOOPTIONS="-nographic"
 
+(sleep 1; vncviewer localhost:0 >/dev/null 2>&1) &
 qemu-system-arm \
     -M versatilepb \
     -m 128M \

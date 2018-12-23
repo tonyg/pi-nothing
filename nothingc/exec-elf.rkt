@@ -358,7 +358,7 @@
 
   (define base-filename
     (command-line
-     #:program "exec-elf.rkt"
+     #:program "pi-nothing-elf"
      #:once-any
      [("-a" "--arch") arch-str
       "Set target architecture (arm7, i386, x86_64)"

@@ -33,6 +33,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (require racket/match)
+(require racket/runtime-path)
 (require racket/set)
 (require (only-in racket/port with-input-from-bytes with-output-to-string))
 (require (only-in racket/system system))
@@ -41,6 +42,8 @@
 
 (provide disassemble-bytes!
 	 disassemble-raw!)
+
+(define-runtime-path private-path "./private")
 
 (define (disassemble-raw! x len
 			  #:arch [arch (current-cpu-architecture)]
@@ -89,8 +92,9 @@
        (lambda ()
          (with-input-from-bytes (subbytes x 0 len)
            (lambda ()
-             (system (string-append "./disarm/disarm-0.11 - "
-                                    (number->string base)))))))
+             (system (string-append (format "~a/disarm/disarm-0.11 - ~a"
+                                            (path->string private-path)
+                                            base)))))))
      "\n"))
   (for [(line (in-list lines))]
     (define pieces (string-split line))
@@ -112,7 +116,11 @@
        (lambda ()
          (with-input-from-bytes (subbytes x 0 len)
            (lambda ()
-             (system (format "./udcli -o ~x ~a~a" base mode (if show-binary "" " -nohex")))))))
+             (system (format "~a/udcli -o ~x ~a~a"
+                             (path->string private-path)
+                             base
+                             mode
+                             (if show-binary "" " -nohex")))))))
      "\n"))
   (for [(line (in-list lines))]
     (define addr (string->number (substring line 0 16) 16))
