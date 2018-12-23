@@ -2,47 +2,49 @@
 
 ## Quickstart
 
+To run the main
+[baremetal Raspberry Pi kernel](baremetal/raspberrypi.nothing),
+
     $ git clone git://github.com/tonyg/pi-nothing.git
-    $ make
-    $ cp kernel.img /PATH/TO/YOUR/RASPBERRY/PI/SDCARD
+    $ make link all
+    $ cp baremetal/raspberrypi.img /PATH/TO/YOUR/RASPBERRY/PI/SDCARD/kernel.img
 
 Boot the Raspberry Pi.
 
-Alternatively,
+There is also a [simpler kernel](baremetal/versatilepb.nothing) for
+the QEMU-emulated
+[`versatilepb`](https://wiki.qemu.org/Documentation/Platforms/ARM)
+machine that can be run in emulation from the host:
 
+    $ cd baremetal
     $ make versatilepb.img
     $ ./run-kernel
 
-If your build fails due to missing Racket dependencies (collections), use `raco pkg` to install them.
+A [graphical variant](baremetal/versatilepb-graphics.nothing) also
+exists.
 
-    $ raco pkg install bitsyntax
-    
-## Details
+When running a `versatilepb` kernel in emulation, you're interacting
+with the kernel via the emulated board's serial UART. Type characters
+at it, and it will echo them. When you get bored of this, press `C-a
+x` to quit `qemu`.
 
-This command compiles the ARM disassembler `disarm`, copyright Gareth
-McCaughan:
+## Third-party software
 
-    $ make -C disarm
+This package makes use of a number of programs and resources
+generously developed and released as free software by other authors:
 
-This command compiles the kernel source from `kernel.nothing` into
-`kernel.img`:
+ - [**disarm**](nothingc/private/disarm), a disassembler for ARM
+   instructions, developed by and copyright to Gareth McCaughan.
 
-    $ racket main-arm.rkt --start $(cat kernel.startaddr) kernel
+ - [**udis**](nothingc/private/udis86-1.7.2.tar.gz), a disassembler
+   for x86 and x86-64, written by and copyright to Vivek Thampi.
 
-## Using qemu-system-arm instead of the Raspberry Pi
+ - [**font0**](baremetal/font0.bin), a very simple monospace bitmapped
+   font developed by and copyright to Bitstream, Inc.
 
-This command compiles `versatilepb.nothing` into `versatilepb.img`:
+ - [**raspbootin**](baremetal/raspbootin), a boot-over-serial
+   bootloader for the Raspberry Pi, developed by and copyright to
+   Goswin von Brederlow.
 
-    $ racket main-arm.rkt --start $(cat versatilepb.startaddr) versatilepb
-
-This command fires up `qemu-system-arm` with `versatilepb.img`:
-
-    $ ./run-kernel 
-
-The graphical output is disabled at present. You're interacting with
-the kernel via the emulated board's serial UART. Type characters at
-it, and it will echo them. When you get bored of this, press `C-a x`
-to quit `qemu`.
-
-Note that `versatilepb.nothing` *polls* the UART for input at present,
-so `qemu` will take 100% of your CPU while it's running!
+and, of course, [QEMU](https://www.qemu.org/) and
+[Racket](https://racket-lang.org/) themselves.
