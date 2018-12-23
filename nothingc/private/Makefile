@@ -19,6 +19,7 @@ clean: clean-disassemblers clean-elf-hash
 clean-disassemblers:
 	rm -rf $(UDIS)
 	rm -f udcli
+	rm -f disarm/disarm-0.11
 
 test-elf-hash: elf-hash
 	./elf-hash 100000 | racket ../elf-hash.rkt
