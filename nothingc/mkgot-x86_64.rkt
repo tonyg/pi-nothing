@@ -74,6 +74,15 @@
 ;; int addsharedvar(int arg) {
 ;;   return arg + sharedvar;
 ;; }
+;;
+(when (not (file-exists? "r.so"))
+  (display-lines-to-file
+   '("int sharedvar = 123;"
+     "int addsharedvar(int arg) {"
+     "  return arg + sharedvar;"
+     "}")
+   "r.c")
+  (system "gcc -O0 -fPIC -shared -o r.so r.c"))
 
 (write-executable "got.elf"
                   (elf-executable #:image linked
@@ -84,7 +93,7 @@
                                   #:got-address (lookup-label 'got-top)
                                   #:interpreter #"/lib64/ld-linux-x86-64.so.2"
                                   #:shared-data-symbols
-                                  (list (dynamic-symbol #"sharedvar" #"r.so"))
+                                  (list (dynamic-symbol #"sharedvar" #"./r.so"))
                                   #:shared-function-symbols
                                   (list (dynamic-symbol #"exit" #"libc.so.6")
-                                        (dynamic-symbol #"addsharedvar" #"r.so"))))
+                                        (dynamic-symbol #"addsharedvar" #"./r.so"))))
