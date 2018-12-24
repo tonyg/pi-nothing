@@ -33,7 +33,7 @@ int main(int argc, char *argv[]) {
   long const width = 1024;
   long const height = 1024;
   long y, x;
-  char buf[width * height * 3];
+  char *buf = malloc(width * height * 3);
   
   printf("P6 %d %d 255\n", width, height);
   fflush(NULL);
