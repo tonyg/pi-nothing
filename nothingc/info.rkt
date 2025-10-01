@@ -1,7 +1,10 @@
 #lang setup/infotab
 (define collection "nothingc")
 (define deps '("base"
-               "make"))
+               "make"
+               "bitsyntax"
+               "rackunit-lib"
+               "srfi-lite-lib"))
 
 (define pre-install-collection "private/install.rkt")
 (define compile-omit-files '("private/install.rkt"
