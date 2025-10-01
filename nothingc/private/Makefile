@@ -7,7 +7,7 @@ disassemblers: udcli disarm/disarm-0.11
 udcli: $(UDIS).tar.gz
 	tar -zxvf $<
 	(cd $(UDIS); patch -p1 < ../udis-octal.patch)
-	(cd $(UDIS); ./configure --disable-shared --prefix=`pwd`/dist && make && make install)
+	(cd $(UDIS); ./configure --disable-shared --with-python=python3 --prefix=`pwd`/dist && make && make install)
 	cp $(UDIS)/dist/bin/udcli .
 	rm -rf $(UDIS)
 
